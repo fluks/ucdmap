@@ -4,6 +4,7 @@ use strict;
 use Tk;
 use Tk::Table;
 use Tk::Balloon;
+use Tk::widgets qw/PNG/;
 use Storable qw/retrieve/;
 use File::Basename;
 use feature qw/state/;
@@ -11,8 +12,7 @@ use feature qw/state/;
 my $options = {
     ucd_map          => undef,
     ucd_default_file => 'ucd.nstor',
-    ucd_file         => 'ucd.nstor',
-    fullscreen       => 1
+    ucd_file         => 'ucd.nstor'
 };
 
 $options->{ucd_file} = $ARGV[0] if @ARGV;
@@ -33,6 +33,7 @@ sub create_gui {
     my $menu = create_menu($main);
     $main->configure(-menu => $menu);
 
+    # This table shows blocks.
     my $table = $main->Table(-scrollbars => 'es');
     fill_table($opt, $table);
     $table->pack(-fill => 'both', -expand => 1);
@@ -55,35 +56,49 @@ sub create_menu {
             -accelerator => 'Ctrl+Q'
         ]
     ]);
-    $menu->cascade(qw/-label ~View -tearoff 0 -menuitems/ => [
-        [
-            Button       => '~Expand All',
-            -command     => sub {  },
-            -accelerator => 'Ctrl+E'
-        ]
-    ]);
 
     return $menu;
 }
 
-# Fill table with ucd block names and balloons of cp ranges.
-# TODO add a hidden table or something for cps
+# Fill table with ucd block names, ucd blocks and balloons of cp ranges.
 # Parameters: - options
-#             - table (Tk::Table)
+#             - Tk::Table
 sub fill_table {
     my ($opt, $table) = @_;
 
+    my $arrow = $table->Photo(-file => 'arrow.png');
     my $balloon = $table->Balloon;
     my ($row, $col) = (0, 0);
     for my $group (@{ $opt->{ucd_map} }) {
+        my $frame = $table->Frame->pack;
         my $block = $group->{block};
-        my $label = $table->Label(-text => $block, -anchor => 'nw', -padx => 5);
+        my $button = $frame->Button(-image => $arrow)->pack(qw/-side left -padx 5/);
+        my $label = $frame->Label(-text => $block)->pack(qw/-side left/);
         $balloon->attach($label, -balloonmsg => cp_range($group));
-        $table->put($row++, $col, $label);
+
+        my $chars_table = $frame->Table;
+        my $is_visible = 1;
+        $button->configure(-command => sub {
+            if ($is_visible) {
+                my $i = 0;
+                for my $char (@{ $group->{chars} }) {
+                    my $label = $chars_table->Label(-text => chr(oct('0x'.$char->{cp})));
+                    $chars_table->put(0, $i++, $label);
+                    $chars_table->pack;
+                }
+            }
+            else {
+                $chars_table->packForget;
+            }
+            
+            $is_visible = !$is_visible;
+        });
+
+        $table->put($row++, $col, $frame);
     }
 }
 
-# Find and return character point range for a character block.
+# Find character point range for a character block.
 # Parameters: character block (ArrayRef)
 # Returns:    character point range (Str)
 sub cp_range {
@@ -93,11 +108,11 @@ sub cp_range {
     my $first = $chars->[0]->{cp} // '?';
     my $last  = $chars->[-1]->{cp} // '?';
 
-    return 'CPs: ' . $first . '-' . $last;
+    return 'CP: ' . $first . '-' . $last;
 }
 
 # Quit program.
-# Parameters: main window (Tk::MainWindow)
+# Parameters: Tk::MainWindow
 sub quit {
     my $main = shift;
     
@@ -111,7 +126,7 @@ sub pop_find_window {
     my ($main, $table) = @_;
 
     my $window = $main->Toplevel(-title => 'Find');
-    $window->geometry('300x100');
+    $window->geometry('300x100-0+0');
     $window->bind('<Escape>' => sub { $window->destroy });
 
     my $frame1 = $window->Frame->pack(qw/-fill x -padx 5 -pady 5/);
@@ -152,17 +167,24 @@ sub focus_find {
     my ($table, $cps_on, $block_on, $char_on, $entry) = @_;
 
     my @children = $table->children;
-    for my $child (@children) {
-        if (ref $child eq 'Tk::Label' && defined $child->cget('-text') && $child->cget('-text') eq $entry) {
-            $table->see($child);
-            my $bg = $child->cget('-bg');
-            $child->configure(-bg => 'blue');
+    for my $c (@children) {
+        my $label;
+        if (ref $c eq 'Tk::Frame') {
+            $label = ($c->children)[0];
+        }
+        else {
+            next;
+        }
+        if (ref $label eq 'Tk::Label' && defined $label->cget('-text') && $label->cget('-text') eq $entry) {
+            $table->see($c);
+            my $bg = $label->cget('-bg');
+            $label->configure(-bg => 'blue');
             $table->bind('<Escape>' => sub {
-                $child->configure(-bg => $bg);
+                $label->configure(-bg => $bg);
                 $table->bind('<Escape>' => '');
             });
             
-            #$child->after(3000, sub { $child->configure(-bg => $bg) });
+            #$label->after(3000, sub { $label->configure(-bg => $bg) });
             last;
         }
     }
@@ -176,6 +198,6 @@ sub bind_keys {
 
     $main->bind('<Control-q>' => sub { quit($main) } );
     $main->bind('<Control-f>' => sub { pop_find_window($main, $table) } );
-    $table->bind('<Home>' => sub { $table->see(0, 0) } );
-    $table->bind('<End>' => sub { $table->see($table->totalRows, 0) } );
+    $table->bind('<Home>'     => sub { $table->see(0, 0) } );
+    $table->bind('<End>'      => sub { $table->see($table->totalRows, 0) } );
 }
