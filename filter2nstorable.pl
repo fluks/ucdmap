@@ -7,19 +7,15 @@ use XML::Simple;
 
 # Convert and filter unicode XML file to network order Perl Storable file.
 # Filters unnecessary nodes and attributes.
-# First argument is the XML file and optional second argument is the output
-# file.
+# First argument is the XML file and second argument is the output file.
 
-if (@ARGV < 1) {
+if (@ARGV < 2) {
     print_usage();
     exit 1;
 }
-my $default_output_file = 'ucd.nstor';
-my $output_file = (@ARGV == 2) ? $ARGV[1] : $default_output_file;
-
 my $ref = XMLin($ARGV[0], ForceArray => 1);
 my $new_ref = filter_excess($ref);
-nstore $new_ref, $output_file;
+nstore $new_ref, $ARGV[1]
 
 exit 0;
 
@@ -68,6 +64,6 @@ sub print_usage {
     print <<HELP;
 Convert and filter unicode xml file to network storable
 usage:
-    $program_name <input file> [output file]
+    $program_name <input file> <output file>
 HELP
 }
