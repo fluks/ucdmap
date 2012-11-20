@@ -152,8 +152,10 @@ sub pop_find_window {
                                  -command   => sub {
         focus_find($table, \$cps_on, \$block_on, \$char_on, $entry->get)
     })->pack;
+    my $next = $frame1->Button(-text => 'Next')->pack();
+    my $previous = $frame1->Button(-text => 'Previous')->pack();
 
-    my $frame2 = $window->Frame->pack;
+    my $frame2 = $window->Frame->pack(qw/-side bottom/);
     my $cps    = $frame2->Checkbutton(-text      => 'CP',
                                       -underline => 0,
                                       -variable  => \$cps_on)->pack(qw/-side left -anchor nw/);
@@ -184,7 +186,7 @@ sub focus_find {
     for my $c (@children) {
         my $label;
         if (ref $c eq 'Tk::Frame') {
-            $label = ($c->children)[0];
+            $label = ($c->children)[1];
         }
         else {
             next;
