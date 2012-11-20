@@ -4,10 +4,14 @@ use strict;
 use Tk;
 use Tk::Table;
 use Tk::Balloon;
+use Tk::Menu;
+use Tk::Wm;
 use Tk::widgets qw/PNG/;
 use Storable qw/retrieve/;
 use File::Basename;
 use feature qw/state/;
+use Encode qw/encode_utf8/;
+use Data::Dumper;
 
 my $options = {
     ucd_map          => undef,
@@ -76,19 +80,29 @@ sub fill_table {
         my $label = $frame->Label(-text => $block)->pack(qw/-side left/);
         $balloon->attach($label, -balloonmsg => cp_range($group));
 
-        my $chars_table = $frame->Table;
+        my $chars_frame = $frame->Frame;
         my $is_visible = 1;
         $button->configure(-command => sub {
             if ($is_visible) {
-                my $i = 0;
+                my ($r, $c) = (0,0);
                 for my $char (@{ $group->{chars} }) {
-                    my $label = $chars_table->Label(-text => chr(oct('0x'.$char->{cp})));
-                    $chars_table->put(0, $i++, $label);
-                    $chars_table->pack;
+                    my $label = $chars_frame->Label(
+                        Name         => 'character',
+                        -text        => chr(oct('0x' . $char->{cp})),
+                        -borderwidth => 1,
+                        -relief      => 'groove')
+                        ->grid(-row => $r, -column => $c++, -sticky => 'nsew');
+                    $balloon->attach($label, -balloonmsg => $char->{cp} . "\n" . $char->{name});
+
+                    if ($c % 50 == 0) {
+                        $c = 0;
+                        $r++;
+                    }
                 }
+                $chars_frame->pack;
             }
             else {
-                $chars_table->packForget;
+                $chars_frame->packForget;
             }
             
             $is_visible = !$is_visible;
@@ -200,4 +214,34 @@ sub bind_keys {
     $main->bind('<Control-f>' => sub { pop_find_window($main, $table) } );
     $table->bind('<Home>'     => sub { $table->see(0, 0) } );
     $table->bind('<End>'      => sub { $table->see($table->totalRows, 0) } );
+    $main->bind('<Button-3>'  => sub { popup_menu($_[0], $main) });
+}
+
+# Pop up a mouse menu for copying character to clipboard.
+# Parameters: - widget (popup only for characters)
+#             - Tk::MainWindow
+sub popup_menu {
+    my ($widget, $main) = @_;
+
+    return
+        if (index($widget->name, 'character') != 0);
+
+    my $menu = $main->Menu(qw/-type normal -tearoff 0 -menuitems/ => [
+        [
+            command  => 'Character to clipboard',
+            -command => sub {
+                $main->clipboardClear;
+                $main->clipboardAppend($widget->cget('-text'));
+            }
+        ],
+        [
+            command   => 'CP to clipboard',
+            -command => sub {
+                $main->clipboardClear;
+                my $character = $widget->cget('-text');
+                $main->clipboardAppend(sprintf "%x", ord($character));
+            }
+        ]
+    ]);
+    $menu->Popup(qw/-popover cursor/);
 }
