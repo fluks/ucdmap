@@ -10,7 +10,6 @@ use Tk::widgets qw/PNG/;
 use Storable qw/retrieve/;
 use File::Basename;
 use feature qw/state/;
-use Encode qw/encode_utf8/;
 use Data::Dumper;
 
 my $options = {
@@ -40,15 +39,14 @@ sub create_gui {
     # This table shows blocks.
     my $table = $main->Table(-scrollbars => 'es');
     fill_table($opt, $table);
-    $table->pack(-fill => 'both', -expand => 1);
     $table->focus;
 
     bind_keys($main, $table);
 }
 
 # Create menu.
-# Parameters: main window (Tk::MainWindow)
-# Returns:    menu widget (Tk::Menu)
+# Parameters: Tk::MainWindow
+# Returns:    Tk::Menu
 sub create_menu {
     my $main = shift;
 
@@ -58,7 +56,7 @@ sub create_menu {
             Button       => '~Quit',
             -command     => sub { quit($main) },
             -accelerator => 'Ctrl+Q'
-        ]
+        ],
     ]);
 
     return $menu;
@@ -76,6 +74,7 @@ sub fill_table {
     for my $group (@{ $opt->{ucd_map} }) {
         my $frame = $table->Frame->pack;
         my $block = $group->{block};
+        # TODO combine button and label
         my $button = $frame->Button(-image => $arrow)->pack(qw/-side left -padx 5/);
         my $label = $frame->Label(-text => $block)->pack(qw/-side left/);
         $balloon->attach($label, -balloonmsg => cp_range($group));
@@ -84,17 +83,18 @@ sub fill_table {
         my $is_visible = 1;
         $button->configure(-command => sub {
             if ($is_visible) {
-                my ($r, $c) = (0,0);
+                my ($r, $c, $columns_max) = (0, 0, 50);
                 for my $char (@{ $group->{chars} }) {
                     my $label = $chars_frame->Label(
+                        # TODO is renaming a widget good idea?
                         Name         => 'character',
                         -text        => chr(oct('0x' . $char->{cp})),
                         -borderwidth => 1,
-                        -relief      => 'groove')
-                        ->grid(-row => $r, -column => $c++, -sticky => 'nsew');
+                        -relief      => 'groove')->
+                            grid(-row => $r, -column => $c++, -sticky => 'nsew');
                     $balloon->attach($label, -balloonmsg => $char->{cp} . "\n" . $char->{name});
 
-                    if ($c % 50 == 0) {
+                    if ($c % $columns_max == 0) {
                         $c = 0;
                         $r++;
                     }
@@ -110,6 +110,7 @@ sub fill_table {
 
         $table->put($row++, $col, $frame);
     }
+    $table->pack(-fill => 'both', -expand => 1);
 }
 
 # Find character point range for a character block.
@@ -141,36 +142,47 @@ sub pop_find_window {
 
     my $window = $main->Toplevel(-title => 'Find');
     $window->geometry('300x100-0+0');
-    $window->bind('<Escape>' => sub { $window->destroy });
+    my $balloon = $window->Balloon;
 
-    my $frame1 = $window->Frame->pack(qw/-fill x -padx 5 -pady 5/);
-    my $entry = $frame1->Entry->pack(qw/-side left -fill x -expand 1 -padx 5/);
+    my $top_frame = $window->Frame->pack(qw/-fill x -expand 1 -pady 5 -padx 5/);
+    my $entry = $top_frame->Entry(qw/-font 14/)->pack(qw/-side   left
+                                                         -expand 1
+                                                         -fill   x
+                                                         -anchor n
+                                                         -padx   5/);
+    $balloon->attach($entry, -balloonmsg => 'Full Perl regular expressions supported');
     $entry->focus;
     state $cps_on = 0; state $block_on = 0; state $char_on = 0;
-    my $button = $frame1->Button(-text      => 'Find',
-                                 -underline => 0,
-                                 -command   => sub {
+    my $button = $top_frame->Button(-text      => 'Find',
+                                    -underline => 0,
+                                    -command   => sub {
         focus_find($table, \$cps_on, \$block_on, \$char_on, $entry->get)
-    })->pack;
-    my $next = $frame1->Button(-text => 'Next')->pack();
-    my $previous = $frame1->Button(-text => 'Previous')->pack();
+    })->pack(qw/-side left -anchor n/);
 
-    my $frame2 = $window->Frame->pack(qw/-side bottom/);
-    my $cps    = $frame2->Checkbutton(-text      => 'CP',
-                                      -underline => 0,
-                                      -variable  => \$cps_on)->pack(qw/-side left -anchor nw/);
-    my $block  = $frame2->Checkbutton(-text      => 'Block name',
-                                      -underline => 0,
-                                      -variable  => \$block_on)->pack;
-    my $char   = $frame2->Checkbutton(-text      => 'Char name',
-                                      -underline => 1,
-                                      -variable  => \$char_on)->pack;
+    my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
+    my $previous = $mid_frame->Button(qw/-text Previous -underline 0/)->
+        pack(qw/-side right -anchor n -padx 2/);
+    my $next = $mid_frame->Button(qw/-text Next -underline 0/)->
+        pack(qw/-side right -anchor n -padx 2/);
 
-    #$button->bind('<Enter>' => sub { $button->invoke; print "enter\n" });
-    #$window->bind('<Alt-F>' => sub { $button->focus; print "alf f\n" });
-    #$window->bind('<Alt-C>' => sub { $cps->focus });
-    #$window->bind('<Alt-B>' => sub { $block->focus });
-    #$window->bind('<Alt-A>' => sub { $char->focus });
+    my $bottom_frame = $window->Frame->pack;
+    my $cps   = $bottom_frame->Checkbutton(-text      => 'CP',
+                                           -underline => 0,
+                                           -variable  => \$cps_on)->pack(qw/-side left/);
+    my $block = $bottom_frame->Checkbutton(-text      => 'Block name',
+                                           -underline => 0,
+                                           -variable  => \$block_on)->pack(qw/-side left/);
+    my $char  = $bottom_frame->Checkbutton(-text      => 'Char name',
+                                           -underline => 1,
+                                           -variable  => \$char_on)->pack(qw/-side left/);
+
+    $window->bind('<Escape>' => sub { $window->destroy });
+    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke });
+    # TODO doesn't work
+    $main->bind('<Alt-f>' => sub { $button->invoke });
+    $main->bind('<Alt-c>' => sub { $cps->toggle });
+    $main->bind('<Alt-b>' => sub { $block->toggle });
+    $main->bind('<Alt-a>' => sub { $char->toggle });
 }
 
 # Find blocks, CPs and character names.
@@ -191,7 +203,8 @@ sub focus_find {
         else {
             next;
         }
-        if (ref $label eq 'Tk::Label' && defined $label->cget('-text') && $label->cget('-text') eq $entry) {
+        if (ref $label eq 'Tk::Label' && defined $label->cget('-text') &&
+                $label->cget('-text') =~ qr/$entry/i) {
             $table->see($c);
             my $bg = $label->cget('-bg');
             $label->configure(-bg => 'blue');
