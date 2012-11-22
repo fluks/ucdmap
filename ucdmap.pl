@@ -58,6 +58,14 @@ sub create_menu {
             -accelerator => 'Ctrl+Q'
         ],
     ]);
+    #my $text = read_help_text();
+    $menu->cascade(qw/-label ~About -tearoff 0 -menuitems/ => [
+        [
+            Button       => '~Help',
+            -command     => sub { show_help($main) },
+            -accelerator => 'Ctrl+H'
+        ],
+    ]);
 
     return $menu;
 }
@@ -74,10 +82,11 @@ sub fill_table {
     for my $group (@{ $opt->{ucd_map} }) {
         my $frame = $table->Frame->pack;
         my $block = $group->{block};
-        # TODO combine button and label
-        my $button = $frame->Button(-image => $arrow)->pack(qw/-side left -padx 5/);
-        my $label = $frame->Label(-text => $block)->pack(qw/-side left/);
-        $balloon->attach($label, -balloonmsg => cp_range($group));
+        my $button = $frame->Button(-text     => $block,
+                                    -image    => $arrow,
+                                    -compound => 'left',
+                                    -relief   => 'flat')->pack(qw/-side left -padx 5/);
+        $balloon->attach($button, -balloonmsg => cp_range($group));
 
         my $chars_frame = $frame->Frame;
         my $is_visible = 1;
@@ -85,6 +94,7 @@ sub fill_table {
             if ($is_visible) {
                 my ($r, $c, $columns_max) = (0, 0, 50);
                 for my $char (@{ $group->{chars} }) {
+                    my $char_name = defined $char->{name} ? $char->{name} : '';
                     my $label = $chars_frame->Label(
                         # TODO is renaming a widget good idea?
                         Name         => 'character',
@@ -92,7 +102,7 @@ sub fill_table {
                         -borderwidth => 1,
                         -relief      => 'groove')->
                             grid(-row => $r, -column => $c++, -sticky => 'nsew');
-                    $balloon->attach($label, -balloonmsg => $char->{cp} . "\n" . $char->{name});
+                    $balloon->attach($label, -balloonmsg => $char->{cp} . "\n" . $char_name);
 
                     if ($c % $columns_max == 0) {
                         $c = 0;
@@ -132,6 +142,26 @@ sub quit {
     my $main = shift;
     
     $main->destroy;
+}
+
+# Read help text only once.
+# Returns: help text (ScaRef)
+sub read_help_text {
+    local $/ = undef;
+    my $text = <DATA>;
+
+    return \$text;
+}
+
+# Show help.
+# Parameters: - Tk::MainWindow
+sub show_help {
+    my ($main) = @_;
+
+    state $text = '';
+    $text = read_help_text($main)
+        unless $text;
+    $main->messageBox(-title => 'Help', -type => 'ok', -message => $$text, -icon => 'info');
 }
 
 # Pop up a window for finding blocks, CPs and character names.
@@ -196,24 +226,24 @@ sub focus_find {
 
     my @children = $table->children;
     for my $c (@children) {
-        my $label;
+        my $widget;
         if (ref $c eq 'Tk::Frame') {
-            $label = ($c->children)[1];
+            $widget = ($c->children)[0];
         }
         else {
             next;
         }
-        if (ref $label eq 'Tk::Label' && defined $label->cget('-text') &&
-                $label->cget('-text') =~ qr/$entry/i) {
+        if (ref $widget eq 'Tk::Button' && defined $widget->cget('-text') &&
+                $widget->cget('-text') =~ qr/$entry/i) {
             $table->see($c);
-            my $bg = $label->cget('-bg');
-            $label->configure(-bg => 'blue');
+            my $bg = $widget->cget('-bg');
+            $widget->configure(-bg => 'blue');
             $table->bind('<Escape>' => sub {
-                $label->configure(-bg => $bg);
+                $widget->configure(-bg => $bg);
                 $table->bind('<Escape>' => '');
             });
-            
-            #$label->after(3000, sub { $label->configure(-bg => $bg) });
+
+            #$widget->after(3000, sub { $widget->configure(-bg => $bg) });
             last;
         }
     }
@@ -226,6 +256,7 @@ sub bind_keys {
     my ($main, $table) = @_;
 
     $main->bind('<Control-q>' => sub { quit($main) } );
+    $main->bind('<Control-h>' => sub { show_help($main) } );
     $main->bind('<Control-f>' => sub { pop_find_window($main, $table) } );
     $table->bind('<Home>'     => sub { $table->see(0, 0) } );
     $table->bind('<End>'      => sub { $table->see($table->totalRows, 0) } );
@@ -260,3 +291,8 @@ sub popup_menu {
     ]);
     $menu->Popup(qw/-popover cursor/);
 }
+
+# This is text for help.
+__DATA__
+This program can only show characters for which the needed fonts are installed.
+
