@@ -6,6 +6,7 @@ use Tk::Table;
 use Tk::Balloon;
 use Tk::Menu;
 use Tk::Wm;
+use Tk::Font;
 use Tk::widgets qw/PNG/;
 use Storable qw/retrieve/;
 use File::Basename;
@@ -32,11 +33,11 @@ sub create_gui {
     my $main = MainWindow->new(-title => basename($0));
     $main->FullScreen;
     $main->packPropagate(0);
+    $main->optionAdd('*font', 'Cursor');
 
     my $menu = create_menu($main);
     $main->configure(-menu => $menu);
 
-    # This table shows blocks.
     my $table = $main->Table(-scrollbars => 'es');
     fill_table($opt, $table);
     $table->focus;
@@ -58,7 +59,12 @@ sub create_menu {
             -accelerator => 'Ctrl+Q'
         ],
     ]);
-    #my $text = read_help_text();
+    $menu->cascade(qw/-label ~Edit -tearoff 0 -menuitems/ => [
+        [
+            Button   => '~Preferences',
+            -command => sub { }
+        ],
+    ]);
     $menu->cascade(qw/-label ~About -tearoff 0 -menuitems/ => [
         [
             Button       => '~Help',
@@ -81,6 +87,7 @@ sub fill_table {
     my ($row, $col) = (0, 0);
     for my $group (@{ $opt->{ucd_map} }) {
         my $frame = $table->Frame->pack;
+        $table->put($row++, $col, $frame);
         my $block = $group->{block};
         my $button = $frame->Button(-text     => $block,
                                     -image    => $arrow,
@@ -94,31 +101,31 @@ sub fill_table {
             if ($is_visible) {
                 my ($r, $c, $columns_max) = (0, 0, 50);
                 for my $char (@{ $group->{chars} }) {
-                    my $char_name = defined $char->{name} ? $char->{name} : '';
+                    my $cp = exists $char->{cp} ? $char->{cp} : undef;
                     my $label = $chars_frame->Label(
-                        # TODO is renaming a widget good idea?
+                        # TODO Is renaming a widget good idea?
                         Name         => 'character',
-                        -text        => chr(oct('0x' . $char->{cp})),
+                        # FIXME This seems to cause clearing of the whole table, when some
+                        # block is shown.
+                        -text        => defined $cp ? chr(oct('0x' . $cp)) : '',
                         -borderwidth => 1,
                         -relief      => 'groove')->
                             grid(-row => $r, -column => $c++, -sticky => 'nsew');
-                    $balloon->attach($label, -balloonmsg => $char->{cp} . "\n" . $char_name);
+                    $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
 
                     if ($c % $columns_max == 0) {
                         $c = 0;
                         $r++;
                     }
                 }
-                $chars_frame->pack;
+                $chars_frame->pack(qw/-anchor se/);
             }
             else {
                 $chars_frame->packForget;
             }
-            
+
             $is_visible = !$is_visible;
         });
-
-        $table->put($row++, $col, $frame);
     }
     $table->pack(-fill => 'both', -expand => 1);
 }
@@ -140,7 +147,7 @@ sub cp_range {
 # Parameters: Tk::MainWindow
 sub quit {
     my $main = shift;
-    
+
     $main->destroy;
 }
 
@@ -295,4 +302,3 @@ sub popup_menu {
 # This is text for help.
 __DATA__
 This program can only show characters for which the needed fonts are installed.
-
