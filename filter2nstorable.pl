@@ -15,7 +15,7 @@ if (@ARGV < 2) {
 }
 my $ref = XMLin($ARGV[0], ForceArray => 1);
 my $new_ref = filter_excess($ref);
-nstore $new_ref, $ARGV[1]
+nstore $new_ref, $ARGV[1];
 
 exit 0;
 
@@ -31,6 +31,8 @@ exit 0;
 #   },
 #   ...
 # ]
+# Filters blocks which don't have at least one char node (they probably have
+# something like 'first-char' and 'last-char' nodes. XXX Maybe add them later.
 # Parameters: resulting reference from parsing an XML file
 # Returns:    filtered reference
 sub filter_excess {
@@ -40,15 +42,14 @@ sub filter_excess {
     my $new_ref = [];
     my $gi = 0;
     for my $group (@$groups) {
-        my $chars = $group->{char};
-        $new_ref->[$gi]->{block} = $group->{blk};
+        next unless exists $group->{char};
 
-        my $new_chars = [];
+        $new_ref->[$gi]->{block} = $group->{blk};
+        my $chars = $group->{char};
         my $ci = 0;
         for my $char (@$chars) {
-            $new_ref->[$gi]->{chars}->[$ci]->{name} = $char->{na1} || $char->{na};
             $new_ref->[$gi]->{chars}->[$ci]->{cp} = $char->{cp};
-
+            $new_ref->[$gi]->{chars}->[$ci]->{name} = $char->{na1} || $char->{na} || '?';
             ++$ci;
         }
 
