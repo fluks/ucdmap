@@ -44,6 +44,8 @@ sub filter_excess {
     for my $group (@$groups) {
         next unless exists $group->{char};
 
+        $group->{blk} =~ tr/_/ /
+            if exists $group->{blk} && defined $group->{blk};
         $new_ref->[$gi]->{block} = $group->{blk};
         my $chars = $group->{char};
         my $ci = 0;

@@ -215,7 +215,7 @@ sub pop_find_window {
 
     $window->bind('<Escape>' => sub { $window->destroy });
     $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke });
-    # TODO doesn't work
+    # TODO these doesn't work
     $main->bind('<Alt-f>' => sub { $button->invoke });
     $main->bind('<Alt-c>' => sub { $cps->toggle });
     $main->bind('<Alt-b>' => sub { $block->toggle });
