@@ -2,7 +2,7 @@
 use warnings;
 use strict;
 use Tk;
-use Tk::Table;
+use Tk::Pane;
 use Tk::Balloon;
 use Tk::Menu;
 use Tk::Wm;
@@ -16,7 +16,8 @@ use Data::Dumper;
 my $options = {
     ucd_map          => undef,
     ucd_default_file => 'ucd.nstor',
-    ucd_file         => 'ucd.nstor'
+    ucd_file         => 'ucd.nstor',
+    button_image     => 'arrow.png'
 };
 
 $options->{ucd_file} = $ARGV[0] if @ARGV;
@@ -38,11 +39,12 @@ sub create_gui {
     my $menu = create_menu($main);
     $main->configure(-menu => $menu);
 
-    my $table = $main->Table(-scrollbars => 'es');
-    fill_table($opt, $table);
-    $table->focus;
+    my $pane = $main->Scrolled('Pane', qw/-scrollbars se/);
+    $pane->pack(qw/-fill both -expand 1 -side left -anchor w/);
+    fill_pane($opt, $pane);
+    $pane->focus;
 
-    bind_keys($main, $table);
+    bind_keys($main, $pane);
 }
 
 # Create menu.
@@ -76,49 +78,47 @@ sub create_menu {
     return $menu;
 }
 
-# Fill table with ucd block names, ucd blocks and balloons of cp ranges.
+# Fill pane with ucd block names, ucd blocks and balloons of cp ranges.
 # Parameters: - options
-#             - Tk::Table
-sub fill_table {
-    my ($opt, $table) = @_;
+#             - Tk::Pane
+sub fill_pane {
+    my ($opt, $pane) = @_;
 
-    my $arrow = $table->Photo(-file => 'arrow.png');
-    my $balloon = $table->Balloon;
-    my ($row, $col) = (0, 0);
+    my $arrow = $pane->Photo(-file => $opt->{button_image});
+    my $balloon = $pane->Balloon;
     for my $group (@{ $opt->{ucd_map} }) {
-        my $frame = $table->Frame->pack;
-        $table->put($row++, $col, $frame);
+        my $frame = $pane->Frame->grid(qw/-sticky nw/);
         my $block = $group->{block};
         my $button = $frame->Button(-text     => $block,
                                     -image    => $arrow,
                                     -compound => 'left',
-                                    -relief   => 'flat')->pack(qw/-side left -padx 5/);
+                                    -relief   => 'flat')->pack(qw/-expand 1 -fill both -side left -padx 5 -anchor w/);
         $balloon->attach($button, -balloonmsg => cp_range($group));
 
         my $chars_frame = $frame->Frame;
         my $is_visible = 1;
         $button->configure(-command => sub {
             if ($is_visible) {
-                my ($r, $c, $columns_max) = (0, 0, 50);
+                my ($row, $col, $columns_max) = (0, 0, 50);
                 for my $char (@{ $group->{chars} }) {
                     my $cp = exists $char->{cp} ? $char->{cp} : undef;
                     my $label = $chars_frame->Label(
                         # TODO Is renaming a widget good idea?
                         Name         => 'character',
-                        # FIXME This seems to cause clearing of the whole table, when some
+                        # FIXME This seems to cause clearing of the whole pane, when some
                         # block is shown.
                         -text        => defined $cp ? chr(oct('0x' . $cp)) : '',
                         -borderwidth => 1,
                         -relief      => 'groove')->
-                            grid(-row => $r, -column => $c++, -sticky => 'nsew');
+                            grid(-row => $row, -column => $col++, -sticky => 'nsew');
                     $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
 
-                    if ($c % $columns_max == 0) {
-                        $c = 0;
-                        $r++;
+                    if ($col % $columns_max == 0) {
+                        $col = 0;
+                        $row++;
                     }
                 }
-                $chars_frame->pack(qw/-anchor se/);
+                $chars_frame->pack(qw/-side left -anchor e/);
             }
             else {
                 $chars_frame->packForget;
@@ -127,7 +127,6 @@ sub fill_table {
             $is_visible = !$is_visible;
         });
     }
-    $table->pack(-fill => 'both', -expand => 1);
 }
 
 # Find character point range for a character block.
@@ -168,14 +167,14 @@ sub show_help {
     state $text = '';
     $text = read_help_text($main)
         unless $text;
-    $main->messageBox(-title => 'Help', -type => 'ok', -message => $$text, -icon => 'info');
+    $main->messageBox(-title => 'Help', -type => 'ok', -message => $$text);
 }
 
 # Pop up a window for finding blocks, CPs and character names.
 # Parameters: - Tk::MainWindow
-#             - Tk::Table
+#             - Tk::Pane
 sub pop_find_window {
-    my ($main, $table) = @_;
+    my ($main, $pane) = @_;
 
     my $window = $main->Toplevel(-title => 'Find');
     $window->geometry('300x100-0+0');
@@ -193,7 +192,7 @@ sub pop_find_window {
     my $button = $top_frame->Button(-text      => 'Find',
                                     -underline => 0,
                                     -command   => sub {
-        focus_find($table, \$cps_on, \$block_on, \$char_on, $entry->get)
+        focus_find($pane, \$cps_on, \$block_on, \$char_on, $entry->get)
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
@@ -213,25 +212,25 @@ sub pop_find_window {
                                            -underline => 1,
                                            -variable  => \$char_on)->pack(qw/-side left/);
 
-    $window->bind('<Escape>' => sub { $window->destroy });
-    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke });
+    $window->bind('<Escape>'             => sub { $window->destroy } );
+    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke } );
     # TODO these doesn't work
-    $main->bind('<Alt-f>' => sub { $button->invoke });
-    $main->bind('<Alt-c>' => sub { $cps->toggle });
-    $main->bind('<Alt-b>' => sub { $block->toggle });
-    $main->bind('<Alt-a>' => sub { $char->toggle });
+    $main->bind('<Alt-f>'                => sub { $button->invoke } );
+    $main->bind('<Alt-c>'                => sub { $cps->toggle } );
+    $main->bind('<Alt-b>'                => sub { $block->toggle } );
+    $main->bind('<Alt-a>'                => sub { $char->toggle } );
 }
 
 # Find blocks, CPs and character names.
-# Parameters: - Tk::Table
+# Parameters: - Tk::Pane
 #             - cp checkbutton value (Bool)
 #             - block checkbutton value (Bool)
 #             - char checkbutton value (Bool)
 #             - entry value (Str)
 sub focus_find {
-    my ($table, $cps_on, $block_on, $char_on, $entry) = @_;
+    my ($pane, $cps_on, $block_on, $char_on, $entry) = @_;
 
-    my @children = $table->children;
+    my @children = $pane->children;
     for my $c (@children) {
         my $widget;
         if (ref $c eq 'Tk::Frame') {
@@ -242,12 +241,12 @@ sub focus_find {
         }
         if (ref $widget eq 'Tk::Button' && defined $widget->cget('-text') &&
                 $widget->cget('-text') =~ qr/$entry/i) {
-            $table->see($c);
+            $pane->see($c);
             my $bg = $widget->cget('-bg');
             $widget->configure(-bg => 'blue');
-            $table->bind('<Escape>' => sub {
+            $pane->bind('<Escape>' => sub {
                 $widget->configure(-bg => $bg);
-                $table->bind('<Escape>' => '');
+                $pane->bind('<Escape>' => '');
             });
 
             #$widget->after(3000, sub { $widget->configure(-bg => $bg) });
@@ -258,16 +257,18 @@ sub focus_find {
 
 # Bind keys.
 # Parameters: - Tk::MainWindow
-#             - Tk::Table
+#             - Tk::Pane
 sub bind_keys {
-    my ($main, $table) = @_;
+    my ($main, $pane) = @_;
 
     $main->bind('<Control-q>' => sub { quit($main) } );
     $main->bind('<Control-h>' => sub { show_help($main) } );
-    $main->bind('<Control-f>' => sub { pop_find_window($main, $table) } );
-    $table->bind('<Home>'     => sub { $table->see(0, 0) } );
-    $table->bind('<End>'      => sub { $table->see($table->totalRows, 0) } );
-    $main->bind('<Button-3>'  => sub { popup_menu($_[0], $main) });
+    $main->bind('<Control-f>' => sub { pop_find_window($main, $pane) } );
+    $main->bind('<Home>'      => sub { $pane->yview(moveto => 0) } );
+    $main->bind('<End>'       => sub { $pane->yview(moveto => 1)  } );
+    $main->bind('<Prior>'     => sub { $pane->yview(scroll => -0.9, 'pages') } );
+    $main->bind('<Next>'      => sub { $pane->yview(scroll => 0.9, 'pages')  } );
+    $main->bind('<Button-3>'  => sub { popup_menu($_[0], $main) } );
 }
 
 # Pop up a mouse menu for copying character to clipboard.
@@ -302,3 +303,13 @@ sub popup_menu {
 # This is text for help.
 __DATA__
 This program can only show characters for which the needed fonts are installed.
+
+Some character blocks might be missing and also reserved characters are not included.
+
+Keyboard shortcuts
+
+Main window:
+
+    Control + F - Find
+    Control + H - Show help
+    Control + Q - Quit
