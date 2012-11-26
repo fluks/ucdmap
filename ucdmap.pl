@@ -10,14 +10,15 @@ use Tk::Font;
 use Tk::widgets qw/PNG/;
 use Storable qw/retrieve/;
 use File::Basename;
-use feature qw/state/;
 use Data::Dumper;
+use feature qw/state/;
 
 my $options = {
     ucd_map          => undef,
     ucd_default_file => 'ucd.nstor',
     ucd_file         => 'ucd.nstor',
-    button_image     => 'arrow.png'
+    button_image     => 'arrow.png',
+    button_paths     => []
 };
 
 $options->{ucd_file} = $ARGV[0] if @ARGV;
@@ -44,7 +45,7 @@ sub create_gui {
     fill_pane($opt, $pane);
     $pane->focus;
 
-    bind_keys($main, $pane);
+    bind_keys($main, $pane, $opt);
 }
 
 # Create menu.
@@ -92,28 +93,29 @@ sub fill_pane {
         my $button = $frame->Button(-text     => $block,
                                     -image    => $arrow,
                                     -compound => 'left',
-                                    -relief   => 'flat')->pack(qw/-expand 1 -fill both -side left -padx 5 -anchor w/);
+                                    -relief   => 'flat')->
+            pack(qw/-expand 1 -fill both -side left -padx 5 -anchor w/);
         $balloon->attach($button, -balloonmsg => cp_range($group));
+
+        push @{ $opt->{button_paths} }, $button->PathName;
 
         my $chars_frame = $frame->Frame;
         my $is_visible = 1;
         $button->configure(-command => sub {
             if ($is_visible) {
-                my ($row, $col, $columns_max) = (0, 0, 50);
+                my ($row, $col, $CHAR_COLUMNS_MAX) = (0, 0, 50);
                 for my $char (@{ $group->{chars} }) {
                     my $cp = exists $char->{cp} ? $char->{cp} : undef;
                     my $label = $chars_frame->Label(
                         # TODO Is renaming a widget good idea?
                         Name         => 'character',
-                        # FIXME This seems to cause clearing of the whole pane, when some
-                        # block is shown.
                         -text        => defined $cp ? chr(oct('0x' . $cp)) : '',
                         -borderwidth => 1,
                         -relief      => 'groove')->
                             grid(-row => $row, -column => $col++, -sticky => 'nsew');
                     $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
 
-                    if ($col % $columns_max == 0) {
+                    if ($col % $CHAR_COLUMNS_MAX == 0) {
                         $col = 0;
                         $row++;
                     }
@@ -173,26 +175,31 @@ sub show_help {
 # Pop up a window for finding blocks, CPs and character names.
 # Parameters: - Tk::MainWindow
 #             - Tk::Pane
+#             - options
 sub pop_find_window {
-    my ($main, $pane) = @_;
+    my ($main, $pane, $opt) = @_;
 
     my $window = $main->Toplevel(-title => 'Find');
     $window->geometry('300x100-0+0');
     my $balloon = $window->Balloon;
 
     my $top_frame = $window->Frame->pack(qw/-fill x -expand 1 -pady 5 -padx 5/);
-    my $entry = $top_frame->Entry(qw/-font 14/)->pack(qw/-side   left
-                                                         -expand 1
-                                                         -fill   x
-                                                         -anchor n
-                                                         -padx   5/);
-    $balloon->attach($entry, -balloonmsg => 'Full Perl regular expressions supported');
+    my $entry = $top_frame->Entry(qw/-font 14/)->
+        pack(qw/-side left -expand 1 -fill x -anchor n -padx 5/);
+    my $message =<<MSG;
+Perl regular expressions are supported.
+The search is case-insensitive.
+Code points are stored as hexadecimals, regular expressions are not used for them.
+For example, 'A' is '0041', leading zeros are not required. 
+MSG
+    $balloon->attach($entry, -balloonmsg => $message);
     $entry->focus;
+
     state $cps_on = 0; state $block_on = 0; state $char_on = 0;
     my $button = $top_frame->Button(-text      => 'Find',
                                     -underline => 0,
                                     -command   => sub {
-        focus_find($pane, \$cps_on, \$block_on, \$char_on, $entry->get)
+        focus_find($pane, \$block_on, \$char_on, \$cps_on, $entry->get, $opt)
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
@@ -202,15 +209,15 @@ sub pop_find_window {
         pack(qw/-side right -anchor n -padx 2/);
 
     my $bottom_frame = $window->Frame->pack;
-    my $cps   = $bottom_frame->Checkbutton(-text      => 'CP',
-                                           -underline => 0,
-                                           -variable  => \$cps_on)->pack(qw/-side left/);
     my $block = $bottom_frame->Checkbutton(-text      => 'Block name',
                                            -underline => 0,
                                            -variable  => \$block_on)->pack(qw/-side left/);
     my $char  = $bottom_frame->Checkbutton(-text      => 'Char name',
                                            -underline => 1,
                                            -variable  => \$char_on)->pack(qw/-side left/);
+    my $cps   = $bottom_frame->Checkbutton(-text      => 'CP',
+                                           -underline => 0,
+                                           -variable  => \$cps_on)->pack(qw/-side left/);
 
     $window->bind('<Escape>'             => sub { $window->destroy } );
     $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke } );
@@ -223,56 +230,70 @@ sub pop_find_window {
 
 # Find blocks, CPs and character names.
 # Parameters: - Tk::Pane
-#             - cp checkbutton value (Bool)
 #             - block checkbutton value (Bool)
 #             - char checkbutton value (Bool)
+#             - cp checkbutton value (Bool)
 #             - entry value (Str)
+#             - options
 sub focus_find {
-    my ($pane, $cps_on, $block_on, $char_on, $entry) = @_;
+    my ($pane, $block_on, $char_on, $cps_on, $entry, $opt) = @_;
 
-    my @children = $pane->children;
-    for my $c (@children) {
-        my $widget;
-        if (ref $c eq 'Tk::Frame') {
-            $widget = ($c->children)[0];
-        }
-        else {
-            next;
-        }
-        if (ref $widget eq 'Tk::Button' && defined $widget->cget('-text') &&
-                $widget->cget('-text') =~ qr/$entry/i) {
-            $pane->see($c);
-            my $bg = $widget->cget('-bg');
-            $widget->configure(-bg => 'blue');
-            $pane->bind('<Escape>' => sub {
-                $widget->configure(-bg => $bg);
-                $pane->bind('<Escape>' => '');
-            });
+    my $regexp = qr/$entry/i;
+    my $g = 0;
+    BLOCK: for my $block (@{ $opt->{ucd_map} }) {
+        my $button = $pane->Widget($opt->{button_paths}->[$g]);
+        next BLOCK if (!defined $button || ref $button ne 'Tk::Button');
 
-            #$widget->after(3000, sub { $widget->configure(-bg => $bg) });
-            last;
+        if ($$block_on) {
+            if (defined $block->{block} && $block->{block} =~ $regexp) {
+                my $bg = $button->cget('-bg');
+                $button->configure(-bg => 'blue');
+                $pane->yview($button);
+                last BLOCK;
+            }
         }
+        if ($$char_on || $$cps_on) {
+            my $char_path_end = '.frame.character';
+            my $parent_path = $button->parent->PathName;
+            my $char_path = $parent_path . $char_path_end;
+            my $c = 0;
+            for my $char (@{ $block->{chars} }) {
+                if (($$cps_on && defined $char->{cp} && oct('0x' . $char->{cp}) == oct('0x' . $entry)) ||
+                    ($$char_on && $char->{name} =~ $regexp)) {
+                    $button->invoke;
+                    $pane->yview($button);
+                    my $char = $pane->Widget($char_path . ($c || ''));
+                    $char->configure(-bg => 'blue');
+                    last BLOCK;
+                }
+                $c++;
+            }
+        }
+
+        $g++;
     }
 }
 
 # Bind keys.
 # Parameters: - Tk::MainWindow
 #             - Tk::Pane
+#             - options
 sub bind_keys {
-    my ($main, $pane) = @_;
+    my ($main, $pane, $opt) = @_;
 
     $main->bind('<Control-q>' => sub { quit($main) } );
     $main->bind('<Control-h>' => sub { show_help($main) } );
-    $main->bind('<Control-f>' => sub { pop_find_window($main, $pane) } );
+    $main->bind('<Control-f>' => sub { pop_find_window($main, $pane, $opt) } );
     $main->bind('<Home>'      => sub { $pane->yview(moveto => 0) } );
     $main->bind('<End>'       => sub { $pane->yview(moveto => 1)  } );
     $main->bind('<Prior>'     => sub { $pane->yview(scroll => -0.9, 'pages') } );
     $main->bind('<Next>'      => sub { $pane->yview(scroll => 0.9, 'pages')  } );
+    #$main->bind('<Button-3>'  => sub { print $_[0]->PathName,"\n" } );
     $main->bind('<Button-3>'  => sub { popup_menu($_[0], $main) } );
 }
 
 # Pop up a mouse menu for copying character to clipboard.
-# Parameters: - widget (popup only for characters)
+# Parameters: - widget that right mouse button was pressed on
 #             - Tk::MainWindow
 sub popup_menu {
     my ($widget, $main) = @_;
