@@ -107,7 +107,6 @@ sub fill_pane {
                 for my $char (@{ $group->{chars} }) {
                     my $cp = exists $char->{cp} ? $char->{cp} : undef;
                     my $label = $chars_frame->Label(
-                        # TODO Is renaming a widget good idea?
                         Name         => 'character',
                         -text        => defined $cp ? chr(oct('0x' . $cp)) : '',
                         -borderwidth => 1,
@@ -196,10 +195,11 @@ MSG
     $entry->focus;
 
     state $cps_on = 0; state $block_on = 0; state $char_on = 0;
+    my ($group_index, $char_index) = (0, 0);
     my $button = $top_frame->Button(-text      => 'Find',
                                     -underline => 0,
                                     -command   => sub {
-        focus_find($pane, \$block_on, \$char_on, \$cps_on, $entry->get, $opt)
+        focus_find($pane, \$block_on, \$char_on, \$cps_on, $entry->get, $opt, \$group_index, \$char_index);
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
@@ -221,11 +221,12 @@ MSG
 
     $window->bind('<Escape>'             => sub { $window->destroy } );
     $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke } );
-    # TODO these doesn't work
-    $main->bind('<Alt-f>'                => sub { $button->invoke } );
-    $main->bind('<Alt-c>'                => sub { $cps->toggle } );
-    $main->bind('<Alt-b>'                => sub { $block->toggle } );
-    $main->bind('<Alt-a>'                => sub { $char->toggle } );
+    $window->bind('<Alt-f>'                => sub { $button->invoke } );
+    $window->bind('<Alt-n>'                => sub { $button->invoke } );
+    $window->bind('<Alt-p>'                => sub { $button->invoke } );
+    $window->bind('<Alt-c>'                => sub { $cps->toggle } );
+    $window->bind('<Alt-b>'                => sub { $block->toggle } );
+    $window->bind('<Alt-h>'                => sub { $char->toggle } );
 }
 
 # Find blocks, CPs and character names.
@@ -235,43 +236,64 @@ MSG
 #             - cp checkbutton value (Bool)
 #             - entry value (Str)
 #             - options
+#             - group index, on which group last search was left
+#             - character index, on which character last search was left
 sub focus_find {
-    my ($pane, $block_on, $char_on, $cps_on, $entry, $opt) = @_;
+    my ($pane, $block_on, $char_on, $cps_on, $entry, $opt, $g_index, $c_index) = @_;
 
     my $regexp = qr/$entry/i;
-    my $g = 0;
-    BLOCK: for my $block (@{ $opt->{ucd_map} }) {
-        my $button = $pane->Widget($opt->{button_paths}->[$g]);
-        next BLOCK if (!defined $button || ref $button ne 'Tk::Button');
+    for (; $$g_index < scalar @{ $opt->{ucd_map} }; $$g_index++) {
+        my $group = $opt->{ucd_map}->[$$g_index];
+        my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
+        if (!defined $button || ref $button ne 'Tk::Button') {
+            $$g_index++;
+            next;
+        }
 
         if ($$block_on) {
-            if (defined $block->{block} && $block->{block} =~ $regexp) {
+            if (defined $group->{block} && $group->{block} =~ $regexp) {
                 my $bg = $button->cget('-bg');
                 $button->configure(-bg => 'blue');
                 $pane->yview($button);
-                last BLOCK;
+                $$g_index++;
+                return;
             }
         }
         if ($$char_on || $$cps_on) {
             my $char_path_end = '.frame.character';
             my $parent_path = $button->parent->PathName;
             my $char_path = $parent_path . $char_path_end;
-            my $c = 0;
-            for my $char (@{ $block->{chars} }) {
+            for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
+                my $char = $group->{chars}->[$$c_index];
+
                 if (($$cps_on && defined $char->{cp} && oct('0x' . $char->{cp}) == oct('0x' . $entry)) ||
                     ($$char_on && $char->{name} =~ $regexp)) {
-                    $button->invoke;
                     $pane->yview($button);
-                    my $char = $pane->Widget($char_path . ($c || ''));
-                    $char->configure(-bg => 'blue');
-                    last BLOCK;
+                    $button->invoke
+                        unless is_visible($pane, $button->parent->PathName . '.frame');
+                    my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
+                    $char_widget->configure(-bg => 'blue');
+                    $$c_index++;
+                    return;
                 }
-                $c++;
             }
+            $$c_index = 0;
         }
-
-        $g++;
     }
+    $$g_index = 0;
+}
+
+# Test is a widget shown.
+# Parameters: - some parent(TODO is this relative?) widget Tk::Widget
+#             - pathname of the tested widget (Str)
+# Returns:    undefined if widget not found at all, false if not shown, true otherwise
+sub is_visible {
+    my ($root_widget, $pathname) = @_;
+
+    my $widget = $root_widget->Widget($pathname);
+    return undef
+        unless defined $widget;
+    return $widget->ismapped;
 }
 
 # Bind keys.
