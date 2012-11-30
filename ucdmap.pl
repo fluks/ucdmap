@@ -4,6 +4,7 @@ use strict;
 use Tk;
 use Tk::Pane;
 use Tk::Balloon;
+use Tk::ROText;
 use Tk::Menu;
 use Tk::Wm;
 use Tk::Font;
@@ -13,6 +14,12 @@ use Storable qw/retrieve/;
 use File::Basename;
 use Data::Dumper;
 use feature qw/state/;
+use constant {
+    HELP_WINDOW_NAME => 'help',
+    HELP_WINDOW_PATH => '.help',
+    FIND_WINDOW_NAME => 'find',
+    FIND_WINDOW_PATH => '.find',
+};
 
 my $options = {
     ucd_map          => undef,
@@ -73,7 +80,11 @@ sub create_menu {
     $menu->cascade(qw/-label ~About -tearoff 0 -menuitems/ => [
         [
             Button       => '~Help',
-            -command     => sub { show_help($main) },
+            -command     => sub {
+                return
+                    if popup_opened($main, HELP_WINDOW_PATH);
+                pop_help($main);
+            },
             -accelerator => 'Ctrl+H'
         ],
     ]);
@@ -89,6 +100,9 @@ sub fill_pane {
 
     my $arrow = $pane->Photo(-file => $opt->{button_image});
     my $balloon = $pane->Balloon;
+    # TODO It's possible and good memory-wise to cache characters once shown.
+    # Just save chars_frame when created.
+    #my $char_cache = {};
     for my $group (@{ $opt->{ucd_map} }) {
         my $frame = $pane->Frame->grid(qw/-sticky nw/);
         my $block = $group->{block};
@@ -154,6 +168,34 @@ sub quit {
     $main->destroy;
 }
 
+# Show help window.
+# Parameters: - Tk::MainWindow
+sub pop_help {
+    my ($main) = @_;
+
+    # __DATA__ can be read only once.
+    state $text = '';
+    $text = read_help_text($main)
+        unless $text;
+
+    my $window = $main->Toplevel(Name => HELP_WINDOW_NAME, -title => 'Help');
+    my $rotext = $window->Scrolled('ROText',
+                                   -width      => 40,
+                                   -scrollbars => 'e')->pack;
+    $rotext->insert('end', $$text);         
+    $rotext->configure(qw/-padx 5 -pady 5/);
+
+    my $button = $window->Button(-text      => 'Ok',
+                                 -underline => 0,
+                                 -command   => sub { $window->destroy; })->pack;
+    $button->focus;                                 
+
+    $window->bind('<Escape>' => sub { $window->destroy; });
+    $window->bind('<Alt-o>'  => sub { $window->destroy; });
+    $window->bind('<Prior>'  => sub { $rotext->yviewScroll(-1, 'pages'); });
+    $window->bind('<Next>'   => sub { $rotext->yviewScroll(1, 'pages'); });
+}
+
 # Read help text.
 # Returns: help text (ScaRef)
 sub read_help_text {
@@ -161,18 +203,6 @@ sub read_help_text {
     my $text = <DATA>;
 
     return \$text;
-}
-
-# Show help.
-# Parameters: - Tk::MainWindow
-sub show_help {
-    my ($main) = @_;
-
-    # __DATA__ can be read only once.
-    state $text = '';
-    $text = read_help_text($main)
-        unless $text;
-    $main->messageBox(-title => 'Help', -type => 'ok', -message => $$text);
 }
 
 # Pop up a window for finding blocks, CPs and character names.
@@ -183,8 +213,10 @@ sub show_help {
 sub pop_find_window {
     my ($main, $pane, $opt, $choices) = @_;
 
-    my $window = $main->Toplevel(-title => 'Find');
-    $window->geometry('300x100-0+0');
+    my $window = $main->Toplevel(Name         => FIND_WINDOW_NAME,
+                                 -title       => 'Find',
+                                 -borderwidth => 5);
+    $window->geometry('-0+0');
     my $balloon = $window->Balloon;
 
     my $top_frame = $window->Frame->pack(qw/-fill x -expand 1 -pady 5 -padx 5/);
@@ -195,7 +227,7 @@ sub pop_find_window {
         pack(qw/-side left -expand 1 -fill x -anchor n -padx 5/);
 
     # Restore possible earlier choices. TODO Pass array of choices to add_choice_to_list()?
-    add_choice_to_list($_, $entry) for @$choices;
+    add_choice_to_list(\$_, $entry) for @$choices;
 
     my $message =<<MSG;
 Perl regular expressions are supported.
@@ -206,16 +238,25 @@ MSG
     $balloon->attach($entry->Subwidget('entry'), -balloonmsg => $message);
     $entry->focus;
 
-    # Checkbuttons' states.
-    state $cps_on = 0; state $block_on = 0; state $char_on = 0;
+    # Selected radio button.
+    state $selected_radio = -1;
+    my %radio = (
+        selected => \$selected_radio,
+        block    => 0,
+        char     => 1,
+        cp       => 2,
+        none     => -1
+    );
     # Save find states. Continue search where we're left.
     my ($group_index, $char_index) = (0, 0);
+    my $last_found_item = { widget => undef, original_bg => undef };
     my $button = $top_frame->Button(-text      => 'Find',
                                     -underline => 0,
                                     -command   => sub {
-        return unless $choice;                                        
-        focus_find($pane, \$block_on, \$char_on, \$cps_on, \$choice, $opt, \$group_index, \$char_index);
-        add_choice_to_list($choice, $entry);                                        
+        return                                        
+            unless validate_choice(\$choice, \%radio);
+        focus_find($pane, \%radio, \$choice, $opt, \$group_index, \$char_index, $last_found_item);
+        add_choice_to_list(\$choice, $entry);                                        
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
@@ -224,19 +265,20 @@ MSG
     my $next = $mid_frame->Button(qw/-text Next -underline 0/)->
         pack(qw/-side right -anchor n -padx 2/);
 
-    my $bottom_frame = $window->Frame->pack;
-    my $block = $bottom_frame->Checkbutton(-text      => 'Block name',
+    my $bottom_frame = $window->Frame->pack(qw/-fill both -expand 1/);
+    my $block = $bottom_frame->Radiobutton(-text      => 'Block name',
                                            -underline => 0,
-                                           -variable  => \$block_on)->pack(qw/-side left/);
-    my $char  = $bottom_frame->Checkbutton(-text      => 'Char name',
+                                           -value     => $radio{block},
+                                           -variable  => \$selected_radio)->pack(qw/-side left/);
+    my $char  = $bottom_frame->Radiobutton(-text      => 'Char name',
                                            -underline => 1,
-                                           -variable  => \$char_on)->pack(qw/-side left/);
-    my $cps   = $bottom_frame->Checkbutton(-text      => 'CP',
+                                           -value     => $radio{char},
+                                           -variable  => \$selected_radio)->pack(qw/-side left/);
+    my $cps   = $bottom_frame->Radiobutton(-text      => 'CP',
                                            -underline => 0,
-                                           -variable  => \$cps_on)->pack(qw/-side left/);
+                                           -value     => $radio{cp},
+                                           -variable  => \$selected_radio)->pack(qw/-side left/);
 
-    # Save choices.
-    $window->bind('<Escape>'             => sub { destroy_popup($window, $entry, $choices); } );
     $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke  } );
     $entry->bind('<Down>'                => sub {
         $entry->Subwidget('arrow')->focus;
@@ -245,25 +287,51 @@ MSG
     $window->bind('<Alt-f>'              => sub { $button->invoke } );
     $window->bind('<Alt-n>'              => sub { $button->invoke } );
     $window->bind('<Alt-p>'              => sub { $button->invoke } );
-    $window->bind('<Alt-c>'              => sub { $cps->toggle    } );
-    $window->bind('<Alt-b>'              => sub { $block->toggle  } );
-    $window->bind('<Alt-h>'              => sub { $char->toggle   } );
+    $window->bind('<Alt-c>'              => sub { $cps->select    } );
+    $window->bind('<Alt-b>'              => sub { $block->select  } );
+    $window->bind('<Alt-h>'              => sub { $char->select   } );
 
+    # Save choices.
+    $window->bind('<Escape>'             => sub {
+        destroy_popup($window, $entry, $choices, $last_found_item);
+    } );
     # When window closed by pressing on the cross or Alt + F4.
-    $window->protocol('WM_DELETE_WINDOW', sub { destroy_popup($window, $entry, $choices); } );
+    $window->protocol('WM_DELETE_WINDOW', sub {
+        destroy_popup($window, $entry, $choices, $last_found_item);
+    } );
+}
+
+# Validate entered search term.
+# Only really for code point search.
+# Parameters: - a reference to search term (RefStr)
+#             - selected radiobutton (HashRef)
+# Returns:    true if valid search term, false otherwise            
+sub validate_choice {
+    my ($choice, $radio) = @_;
+
+    return 0
+        unless $$choice;
+    return 0
+        if ${ $radio->{selected} } == $radio->{none};
+    return 0
+        if (${ $radio->{selected} } == $radio->{cp} && $$choice !~ m/^[a-h0-9]+$/i);
+    return 1;
 }
 
 # Find blocks, CPs and character names.
 # Parameters: - Tk::Pane
-#             - block checkbutton value (Bool)
-#             - char checkbutton value (Bool)
-#             - cp checkbutton value (Bool)
+#             - selected radiobutton (HashRef)
 #             - entry value (Str)
-#             - options
+#             - options (HashRef)
 #             - group index, on which group last search was left
 #             - character index, on which character last search was left
+#             - last found widget (HashRef)
 sub focus_find {
-    my ($pane, $block_on, $char_on, $cps_on, $choice, $opt, $g_index, $c_index) = @_;
+    my ($pane, $radio, $choice, $opt, $g_index, $c_index, $last_found_item) = @_;
+
+    # Bring back original background of last matched widget. 
+    $last_found_item->{widget}->configure('-bg' => $last_found_item->{original_bg})
+        if defined $last_found_item->{widget};
 
     my $regexp = qr/$$choice/i;
     for (; $$g_index < scalar @{ $opt->{ucd_map} }; $$g_index++) {
@@ -274,28 +342,33 @@ sub focus_find {
             next;
         }
 
-        if ($$block_on) {
+        if (${ $radio->{selected} } == $radio->{block}) {
             if (defined $group->{block} && $group->{block} =~ $regexp) {
-                my $bg = $button->cget('-bg');
+                $last_found_item->{widget} = $button;
+                $last_found_item->{original_bg} = $button->cget('-bg');
                 $button->configure(-bg => 'blue');
                 $pane->yview($button);
                 $$g_index++;
                 return;
             }
         }
-        if ($$char_on || $$cps_on) {
+        if (${ $radio->{selected} } == $radio->{char} || ${ $radio->{selected} } == $radio->{cp}) {
             my $char_path_end = '.frame.character';
             my $parent_path = $button->parent->PathName;
             my $char_path = $parent_path . $char_path_end;
+
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
 
-                if (($$cps_on && defined $char->{cp} && oct('0x' . $char->{cp}) == oct('0x' . $$choice)) ||
-                    ($$char_on && $char->{name} =~ $regexp)) {
-                    $pane->yview($button);
+                if ((${ $radio->{selected} } == $radio->{cp} && defined $char->{cp} &&
+                    oct('0x' . $char->{cp}) == oct('0x' . $$choice)) ||
+                    (${ $radio->{selected} } == $radio->{char} && $char->{name} =~ $regexp)) {
                     $button->invoke
-                        unless is_visible($pane, $button->parent->PathName . '.frame');
+                        unless is_visible($pane, $parent_path . '.frame');
+                    $pane->yview($button);
                     my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
+                    $last_found_item->{widget} = $char_widget;
+                    $last_found_item->{original_bg} = $char_widget->cget('-bg');
                     $char_widget->configure(-bg => 'blue');
                     $$c_index++;
                     return;
@@ -322,7 +395,7 @@ sub is_visible {
 
 # When searched, add search term (choice) to BrowseEntry's list of searches.
 # Save the same term only once and in alphabetic order.
-# Parameters: - search term (String)
+# Parameters: - a reference to search term (RefStr)
 #             - Tk::BrowseEntry
 sub add_choice_to_list {
     my ($choice, $entry) = @_;
@@ -331,10 +404,10 @@ sub add_choice_to_list {
 
     my $i;
     for ($i = 0; $i < scalar @set; $i++) {
-        return if $choice eq $set[$i];
-        last if ($choice cmp $set[$i]) < 0;
+        return if $$choice eq $set[$i];
+        last if ($$choice cmp $set[$i]) < 0;
     }
-    $entry->insert(($i > $#set ? 'end' : $i), $choice);
+    $entry->insert(($i > $#set ? 'end' : $i), $$choice);
 }
 
 # When destroying popup window, save choices list.
@@ -343,8 +416,13 @@ sub add_choice_to_list {
 # Parameters: - popup window (Tk::Toplevel)
 #             - Tk::BrowseEntry
 #             - choices (ArrayRef)
+#             - last found widget (HashRef)
 sub destroy_popup {
-    my ($window, $entry, $choices) = @_;
+    my ($window, $entry, $choices, $last_found_item) = @_;
+
+    # Clear background of a found widget.
+    $last_found_item->{widget}->configure('-bg' => $last_found_item->{original_bg})
+        if defined $last_found_item->{widget};
 
     push @$choices, $entry->get(0, 'end');
     $window->destroy;
@@ -358,33 +436,38 @@ sub bind_keys {
     my ($main, $pane, $opt) = @_;
 
     $main->bind('<Control-q>' => sub { quit($main) } );
-    $main->bind('<Control-h>' => sub { show_help($main) } );
+    $main->bind('<Control-h>' => sub {
+        # TODO Try to return a ref to toplevel and check that way.
+        return
+            if popup_opened($main, HELP_WINDOW_PATH);
+        pop_help($main);
+    } );
     # Need to declare here, because BrowseEntry's -choices doesn't work with autolimitheight.
     my $choices = [];
     $main->bind('<Control-f>' => sub {
         return
-            if popup_opened($main);
+            if popup_opened($main, FIND_WINDOW_PATH);
         pop_find_window($main, $pane, $opt, $choices);
     } );
-    $main->bind('<Home>'      => sub { $pane->yview(moveto => 0) } );
-    $main->bind('<End>'       => sub { $pane->yview(moveto => 1)  } );
-    $main->bind('<Prior>'     => sub { $pane->yview(scroll => -0.9, 'pages') } );
-    $main->bind('<Next>'      => sub { $pane->yview(scroll => 0.9, 'pages')  } );
-    $main->bind('<Button-3>'  => sub { popup_menu($_[0], $main) } );
+    $main->bind('<Home>'     => sub { $pane->yview(moveto => 0) } );
+    $main->bind('<End>'      => sub { $pane->yview(moveto => 1)  } );
+    $main->bind('<Prior>'    => sub { $pane->yview(scroll => -0.9, 'pages') } );
+    $main->bind('<Next>'     => sub { $pane->yview(scroll => 0.9, 'pages')  } );
+    $main->bind('<Button-3>' => sub { popup_menu($_[0], $main) } );
 }
 
 # If popup is already opened, show it, don't create a new one.
-# Parameters: Tk::MainWindow
+# Parameters: - Tk::MainWindow
+#             - widget pathname (Str)
 # Returns:    true if popup is opened, false otherwise
 sub popup_opened {
-    my ($main) = @_;
+    my ($main, $pathname) = @_;
     
-    my $popup_pathname = '.toplevel';
-    my $popup = $main->Widget($popup_pathname);
+    my $widget = $main->Widget($pathname);
     return 0
-        unless defined $popup;    
+        unless defined $widget;    
 
-    $popup->raise;
+    $widget->raise;
     return 1;
 }
 
@@ -419,9 +502,11 @@ sub popup_menu {
 
 # This is text for help.
 __DATA__
-This program can only show characters for which the needed fonts are installed.
+This program can only show characters for
+which the needed fonts are installed.
 
-Some character blocks might be missing and also reserved characters are not included.
+Some character blocks might be missing
+and also reserved characters are not included.
 
 Keyboard shortcuts
 
@@ -430,3 +515,12 @@ Main window:
     Control + F - Find
     Control + H - Show help
     Control + Q - Quit
+
+Find window:
+
+    Alt + F - Find next
+    Alt + N - Find next
+    Alt + P - Find previous
+    Alt + B - Find blocks
+    Alt + H - Find character names
+    Alt + C - Find character code points
