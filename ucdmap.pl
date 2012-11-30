@@ -8,6 +8,7 @@ use Tk::Menu;
 use Tk::Wm;
 use Tk::Font;
 use Tk::widgets qw/PNG/;
+use Tk::BrowseEntry;
 use Storable qw/retrieve/;
 use File::Basename;
 use Data::Dumper;
@@ -18,6 +19,7 @@ my $options = {
     ucd_default_file => 'ucd.nstor',
     ucd_file         => 'ucd.nstor',
     button_image     => 'arrow.png',
+    # Save pathnames of buttons to make it easier to find widgets.
     button_paths     => []
 };
 
@@ -100,6 +102,7 @@ sub fill_pane {
         push @{ $opt->{button_paths} }, $button->PathName;
 
         my $chars_frame = $frame->Frame;
+        # Are characters of a character block shown or hidden.
         my $is_visible = 1;
         $button->configure(-command => sub {
             if ($is_visible) {
@@ -151,7 +154,7 @@ sub quit {
     $main->destroy;
 }
 
-# Read help text only once.
+# Read help text.
 # Returns: help text (ScaRef)
 sub read_help_text {
     local $/ = undef;
@@ -165,6 +168,7 @@ sub read_help_text {
 sub show_help {
     my ($main) = @_;
 
+    # __DATA__ can be read only once.
     state $text = '';
     $text = read_help_text($main)
         unless $text;
@@ -175,31 +179,43 @@ sub show_help {
 # Parameters: - Tk::MainWindow
 #             - Tk::Pane
 #             - options
+#             - choices stored to last closing the popup (ArrayRef)
 sub pop_find_window {
-    my ($main, $pane, $opt) = @_;
+    my ($main, $pane, $opt, $choices) = @_;
 
     my $window = $main->Toplevel(-title => 'Find');
     $window->geometry('300x100-0+0');
     my $balloon = $window->Balloon;
 
     my $top_frame = $window->Frame->pack(qw/-fill x -expand 1 -pady 5 -padx 5/);
-    my $entry = $top_frame->Entry(qw/-font 14/)->
+    my $choice;
+    my $entry = $top_frame->BrowseEntry(-listheight      => 10,
+                                        -autolimitheight => 1,
+                                        -variable        => \$choice)->
         pack(qw/-side left -expand 1 -fill x -anchor n -padx 5/);
+
+    # Restore possible earlier choices. TODO Pass array of choices to add_choice_to_list()?
+    add_choice_to_list($_, $entry) for @$choices;
+
     my $message =<<MSG;
 Perl regular expressions are supported.
 The search is case-insensitive.
 Code points are stored as hexadecimals, regular expressions are not used for them.
 For example, 'A' is '0041', leading zeros are not required. 
 MSG
-    $balloon->attach($entry, -balloonmsg => $message);
+    $balloon->attach($entry->Subwidget('entry'), -balloonmsg => $message);
     $entry->focus;
 
+    # Checkbuttons' states.
     state $cps_on = 0; state $block_on = 0; state $char_on = 0;
+    # Save find states. Continue search where we're left.
     my ($group_index, $char_index) = (0, 0);
     my $button = $top_frame->Button(-text      => 'Find',
                                     -underline => 0,
                                     -command   => sub {
-        focus_find($pane, \$block_on, \$char_on, \$cps_on, $entry->get, $opt, \$group_index, \$char_index);
+        return unless $choice;                                        
+        focus_find($pane, \$block_on, \$char_on, \$cps_on, \$choice, $opt, \$group_index, \$char_index);
+        add_choice_to_list($choice, $entry);                                        
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
@@ -219,14 +235,22 @@ MSG
                                            -underline => 0,
                                            -variable  => \$cps_on)->pack(qw/-side left/);
 
-    $window->bind('<Escape>'             => sub { $window->destroy } );
-    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke } );
-    $window->bind('<Alt-f>'                => sub { $button->invoke } );
-    $window->bind('<Alt-n>'                => sub { $button->invoke } );
-    $window->bind('<Alt-p>'                => sub { $button->invoke } );
-    $window->bind('<Alt-c>'                => sub { $cps->toggle } );
-    $window->bind('<Alt-b>'                => sub { $block->toggle } );
-    $window->bind('<Alt-h>'                => sub { $char->toggle } );
+    # Save choices.
+    $window->bind('<Escape>'             => sub { destroy_popup($window, $entry, $choices); } );
+    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke  } );
+    $entry->bind('<Down>'                => sub {
+        $entry->Subwidget('arrow')->focus;
+        $entry->Subwidget('arrow')->eventGenerate('<space>');
+     } );
+    $window->bind('<Alt-f>'              => sub { $button->invoke } );
+    $window->bind('<Alt-n>'              => sub { $button->invoke } );
+    $window->bind('<Alt-p>'              => sub { $button->invoke } );
+    $window->bind('<Alt-c>'              => sub { $cps->toggle    } );
+    $window->bind('<Alt-b>'              => sub { $block->toggle  } );
+    $window->bind('<Alt-h>'              => sub { $char->toggle   } );
+
+    # When window closed by pressing on the cross or Alt + F4.
+    $window->protocol('WM_DELETE_WINDOW', sub { destroy_popup($window, $entry, $choices); } );
 }
 
 # Find blocks, CPs and character names.
@@ -239,9 +263,9 @@ MSG
 #             - group index, on which group last search was left
 #             - character index, on which character last search was left
 sub focus_find {
-    my ($pane, $block_on, $char_on, $cps_on, $entry, $opt, $g_index, $c_index) = @_;
+    my ($pane, $block_on, $char_on, $cps_on, $choice, $opt, $g_index, $c_index) = @_;
 
-    my $regexp = qr/$entry/i;
+    my $regexp = qr/$$choice/i;
     for (; $$g_index < scalar @{ $opt->{ucd_map} }; $$g_index++) {
         my $group = $opt->{ucd_map}->[$$g_index];
         my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
@@ -266,7 +290,7 @@ sub focus_find {
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
 
-                if (($$cps_on && defined $char->{cp} && oct('0x' . $char->{cp}) == oct('0x' . $entry)) ||
+                if (($$cps_on && defined $char->{cp} && oct('0x' . $char->{cp}) == oct('0x' . $$choice)) ||
                     ($$char_on && $char->{name} =~ $regexp)) {
                     $pane->yview($button);
                     $button->invoke
@@ -296,6 +320,36 @@ sub is_visible {
     return $widget->ismapped;
 }
 
+# When searched, add search term (choice) to BrowseEntry's list of searches.
+# Save the same term only once and in alphabetic order.
+# Parameters: - search term (String)
+#             - Tk::BrowseEntry
+sub add_choice_to_list {
+    my ($choice, $entry) = @_;
+    
+    my @set = $entry->get(0, 'end');
+
+    my $i;
+    for ($i = 0; $i < scalar @set; $i++) {
+        return if $choice eq $set[$i];
+        last if ($choice cmp $set[$i]) < 0;
+    }
+    $entry->insert(($i > $#set ? 'end' : $i), $choice);
+}
+
+# When destroying popup window, save choices list.
+# If -choices array is used, -autolimitheight doesn't work, so choices must be saved
+# separately.
+# Parameters: - popup window (Tk::Toplevel)
+#             - Tk::BrowseEntry
+#             - choices (ArrayRef)
+sub destroy_popup {
+    my ($window, $entry, $choices) = @_;
+
+    push @$choices, $entry->get(0, 'end');
+    $window->destroy;
+}
+
 # Bind keys.
 # Parameters: - Tk::MainWindow
 #             - Tk::Pane
@@ -305,13 +359,33 @@ sub bind_keys {
 
     $main->bind('<Control-q>' => sub { quit($main) } );
     $main->bind('<Control-h>' => sub { show_help($main) } );
-    $main->bind('<Control-f>' => sub { pop_find_window($main, $pane, $opt) } );
+    # Need to declare here, because BrowseEntry's -choices doesn't work with autolimitheight.
+    my $choices = [];
+    $main->bind('<Control-f>' => sub {
+        return
+            if popup_opened($main);
+        pop_find_window($main, $pane, $opt, $choices);
+    } );
     $main->bind('<Home>'      => sub { $pane->yview(moveto => 0) } );
     $main->bind('<End>'       => sub { $pane->yview(moveto => 1)  } );
     $main->bind('<Prior>'     => sub { $pane->yview(scroll => -0.9, 'pages') } );
     $main->bind('<Next>'      => sub { $pane->yview(scroll => 0.9, 'pages')  } );
-    #$main->bind('<Button-3>'  => sub { print $_[0]->PathName,"\n" } );
     $main->bind('<Button-3>'  => sub { popup_menu($_[0], $main) } );
+}
+
+# If popup is already opened, show it, don't create a new one.
+# Parameters: Tk::MainWindow
+# Returns:    true if popup is opened, false otherwise
+sub popup_opened {
+    my ($main) = @_;
+    
+    my $popup_pathname = '.toplevel';
+    my $popup = $main->Widget($popup_pathname);
+    return 0
+        unless defined $popup;    
+
+    $popup->raise;
+    return 1;
 }
 
 # Pop up a mouse menu for copying character to clipboard.
