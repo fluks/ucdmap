@@ -100,9 +100,9 @@ sub fill_pane {
 
     my $arrow = $pane->Photo(-file => $opt->{button_image});
     my $balloon = $pane->Balloon;
-    # TODO It's possible and good memory-wise to cache characters once shown.
-    # Just save chars_frame when created.
-    #my $char_cache = {};
+    # Cache characters, otherwise pressing same character block, would create
+    # the same characters again and consume memory.
+    my $char_cache = {};
     for my $group (@{ $opt->{ucd_map} }) {
         my $frame = $pane->Frame->grid(qw/-sticky nw/);
         my $block = $group->{block};
@@ -120,23 +120,28 @@ sub fill_pane {
         my $is_visible = 1;
         $button->configure(-command => sub {
             if ($is_visible) {
-                my ($row, $col, $CHAR_COLUMNS_MAX) = (0, 0, 50);
-                for my $char (@{ $group->{chars} }) {
-                    my $cp = exists $char->{cp} ? $char->{cp} : undef;
-                    my $label = $chars_frame->Label(
-                        Name         => 'character',
-                        -text        => defined $cp ? chr(oct('0x' . $cp)) : '',
-                        -borderwidth => 1,
-                        -relief      => 'groove')->
-                            grid(-row => $row, -column => $col++, -sticky => 'nsew');
-                    $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
+                # Any individual key will do.
+                my $id = $button->id;
+                unless (exists $char_cache->{$id}) {
+                    my ($row, $col, $CHAR_COLUMNS_MAX) = (0, 0, 50);
+                    for my $char (@{ $group->{chars} }) {
+                        my $cp = exists $char->{cp} ? $char->{cp} : undef;
+                        my $label = $chars_frame->Label(
+                            Name         => 'character',
+                            -text        => defined $cp ? chr(oct('0x' . $cp)) : '',
+                            -borderwidth => 1,
+                            -relief      => 'groove')->
+                                grid(-row => $row, -column => $col++, -sticky => 'nsew');
+                        $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
 
-                    if ($col % $CHAR_COLUMNS_MAX == 0) {
-                        $col = 0;
-                        $row++;
+                        if ($col % $CHAR_COLUMNS_MAX == 0) {
+                            $col = 0;
+                            $row++;
+                        }
                     }
+                    $char_cache->{$id} = $chars_frame;
                 }
-                $chars_frame->pack(qw/-side left -anchor e/);
+                $char_cache->{$id}->pack(qw/-side left -anchor e/);
             }
             else {
                 $chars_frame->packForget;
