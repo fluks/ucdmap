@@ -464,7 +464,116 @@ sub bind_keys {
             if (index($_[0]->name, 'character') != 0);
         select_char($selected_chars, $_[0]);
     } );
-    $main->bind('<Button-3>' => sub { popup_menu($_[0], $main, $selected_chars) } );
+    # Ctrl + mouse button 1 can select area of characters.
+    my ($block, $sel_x1, $sel_y1) = (undef, 0, 0);
+    $main->bind('<Control-ButtonPress-1>' =>
+        [ \&start_mouse_select, \$block, \$sel_x1, \$sel_y1, Ev('X'), Ev('Y') ] );
+    $main->bind('<Control-ButtonRelease-1>' =>
+        [ \&end_mouse_select, $selected_chars, \$block, \$sel_x1, \$sel_y1, Ev('X'), Ev('Y') ] );
+    $main->bind('<Button-3>' => sub { popup_menu($_[0], $main, $selected_chars); } );
+}
+
+# Start selecting characters with ctrl + mouse button 1.
+# Parameters: - widget where button was pressed on (Tk::Widget)
+#             - a reference to save the parent of widget that was pressed on (ScaRef)
+#             - a reference to save x coordinate where button was pressed (ScaRef)
+#             - a reference to save y coordinate where button was pressed (ScaRef)
+#             - x coordinate where button was pressed (Int)
+#             - y coordinate where button was pressed (Int)
+sub start_mouse_select {
+    my ($widget, $block, $sel_x1, $sel_y1, $x, $y) = @_;
+
+    return
+        if (index($widget->name, 'character') != 0);
+
+    ($$block, $$sel_x1, $$sel_y1) = ($widget->parent, $x, $y);
+}
+
+# Find characters on selected area and select them.
+# Parameters: - discard widget where button was released
+#             - selected characters (HashRef)
+#             - a reference to parent of a widget where button was pressed
+#             - a reference to save x coordinate where button was pressed (ScaRef)
+#             - a reference to save y coordinate where button was pressed (ScaRef)
+#             - x coordinate where button was released (Int)
+#             - y coordinate where button was released (Int)
+sub end_mouse_select {
+    my (undef, $selected_chars, $block, $sel_x1, $sel_y1, $sel_x2, $sel_y2) = @_;
+
+    my $sel_square = { x1 => $$sel_x1, y1 => $$sel_y1, x2 => $sel_x2, y2 => $sel_y2 };
+    switch_coords($sel_square);
+
+    my @chars;
+    for my $l (${$block}->children) {
+        my $label_square = {};
+        ($label_square->{x1}, $label_square->{y1}) = ($l->rootx, $l->rooty);
+        ($label_square->{x2}, $label_square->{y2}) =
+            ($label_square->{x1} + $l->width, $label_square->{y1} + $l->height);
+
+        if (squares_intersect($sel_square, $label_square) ||
+            lines_cross($sel_square, $label_square)) {
+            push @chars, $l;
+        }
+    }
+    select_all_chars($selected_chars, \@chars, 1);
+}
+
+# Switch coordinates of the square area to have semantics of start and end,
+# i.e., start coordinates are always smaller than end coordinates.
+# Parameters: square (HashRef)
+sub switch_coords {
+    my ($square) = @_;
+
+    if ($square->{x1} > $square->{x2}) {
+        ($square->{x1}, $square->{x2}) = ($square->{x2}, $square->{x1});
+    }
+    if ($square->{y1} > $square->{y2}) {
+        ($square->{y1}, $square->{y2}) = ($square->{y2}, $square->{y1});
+    }
+}
+
+# Find if squares intersect.
+# Parameters: - square (HashRef)
+#             - square (HashRef)
+# Returns:    true if containers intersect, false otherwise
+sub squares_intersect {
+    # Is a corner of a square inside other square and vice versa.
+    my @squares = (@_, reverse @_);
+    while (my ($s1, $s2) = splice @squares, 0, 2) {
+        return 1
+            if ($s2->{x1} > $s1->{x1} && $s2->{x1} < $s1->{x2} &&
+                $s2->{y1} > $s1->{y1} && $s2->{y1} < $s1->{y2});
+         return 1
+            if ($s2->{x1} > $s1->{x1} && $s2->{x1} < $s1->{x2} &&
+                $s2->{y2} > $s1->{y1} && $s2->{y2} < $s1->{y2});
+         return 1
+            if ($s2->{x2} > $s1->{x1} && $s2->{x2} < $s1->{x2} &&
+                $s2->{y1} > $s1->{y1} && $s2->{y1} < $s1->{y2});
+         return 1
+            if ($s2->{x2} > $s1->{x1} && $s2->{x2} < $s1->{x2} &&
+                $s2->{y2} > $s1->{y1} && $s2->{y2} < $s1->{y2});
+    }
+    return 0;
+}
+
+# Do lines of the squares cross.
+# Not every possibility needs to be tested, because on other cases also the
+# corner of a square is inside other square, which is already tested. Only the
+# cases where one square "goes through other square" needs to be tested.
+#  000 s2      o s1    s1 "goes through" s2 on both ascii images.
+# oooooo s1  0 o 0 s2
+#  000         o
+sub lines_cross {
+    my ($s1, $s2) = @_;
+
+    return 1
+        if ($s1->{x1} > $s2->{x1} && $s1->{x1} < $s2->{x2} &&
+            $s2->{y1} > $s1->{y1} && $s2->{y1} < $s1->{y2});
+    return 1
+        if ($s2->{x1} > $s1->{x1} && $s2->{x1} < $s1->{x2} &&
+            $s1->{y1} > $s2->{y1} && $s1->{y1} < $s2->{y2});
+
+    return 0;
 }
 
 # Select a character and change it's background accordingly.
@@ -489,7 +598,7 @@ sub select_char {
 
 # Select or unselect all characters in a block.
 # Parameters: - selected characters (HashRef)
-#             - characters (Tk::Label)
+#             - characters (ArrayRef Tk::Label)
 #             - select or unselect (Bool)
 sub select_all_chars {
     my ($selected_chars, $characters, $on) = @_;
