@@ -458,7 +458,51 @@ sub bind_keys {
     $main->bind('<End>'      => sub { $pane->yview(moveto => 1)  } );
     $main->bind('<Prior>'    => sub { $pane->yview(scroll => -0.9, 'pages') } );
     $main->bind('<Next>'     => sub { $pane->yview(scroll => 0.9, 'pages')  } );
-    $main->bind('<Button-3>' => sub { popup_menu($_[0], $main) } );
+    my $selected_chars = {};
+    $main->bind('<Button-1>' => sub {
+        return
+            if (index($_[0]->name, 'character') != 0);
+        select_char($selected_chars, $_[0]);
+    } );
+    $main->bind('<Button-3>' => sub { popup_menu($_[0], $main, $selected_chars) } );
+}
+
+# Select a character and change it's background accordingly.
+# Parameters: - selected characters (HashRef)
+#             - character (Tk::Widget)
+sub select_char {
+    my ($selected_chars, $widget) = @_;
+
+    my $id = $widget->id;
+    if (exists $selected_chars->{$id}) {
+        my $original_bg = $selected_chars->{$id}->{original_bg};
+        $widget->configure('-bg' => $original_bg);
+        delete $selected_chars->{$id};
+    }
+    else {
+        $selected_chars->{$id}->{widget} = $widget;
+        my $original_bg = $widget->cget('-bg');
+        $selected_chars->{$id}->{original_bg} = $original_bg;
+        $widget->configure('-bg' => 'red');
+    }
+}
+
+# Select or unselect all characters in a block.
+# Parameters: - selected characters (HashRef)
+#             - characters (Tk::Label)
+#             - select or unselect (Bool)
+sub select_all_chars {
+    my ($selected_chars, $characters, $on) = @_;
+
+    for my $c (@$characters) {
+        my $id = $c->id;
+        if ($on && !exists $selected_chars->{$id}) {
+            select_char($selected_chars, $c);
+        }
+        elsif (!$on && exists $selected_chars->{$id}) {
+            select_char($selected_chars, $c);
+        }
+    }
 }
 
 # If popup is already opened, show it, don't create a new one.
@@ -479,8 +523,9 @@ sub popup_opened {
 # Pop up a mouse menu for copying character to clipboard.
 # Parameters: - widget that right mouse button was pressed on
 #             - Tk::MainWindow
+#             - selected characters (HashRef)
 sub popup_menu {
-    my ($widget, $main) = @_;
+    my ($widget, $main, $selected_chars) = @_;
 
     return
         if (index($widget->name, 'character') != 0);
@@ -494,13 +539,41 @@ sub popup_menu {
             }
         ],
         [
-            command   => 'CP to clipboard',
+            command  => 'CP to clipboard',
             -command => sub {
                 $main->clipboardClear;
                 my $character = $widget->cget('-text');
                 $main->clipboardAppend(sprintf "%x", ord($character));
             }
-        ]
+        ],
+        '',
+        [
+            command  => 'Selected characters to clipboard',
+            -command => sub {
+                $main->clipboardClear;
+                my @chars;
+                for my $char (values %$selected_chars) {
+                    my $text = $char->{widget}->cget('-text');
+                    push @chars, $text;
+                }
+                my $chars = join '', sort @chars;
+                $main->clipboardAppend($chars);
+            }
+        ],
+        '',
+        [
+            command  => 'Select all in block',
+            -command => sub {
+                select_all_chars($selected_chars, [ $widget->parent->children ], 1);
+            }
+        ],
+        [
+            command  => 'Unselect all in block',
+            -command => sub {
+                select_all_chars($selected_chars, [ $widget->parent->children ], 0);
+            }
+        ],
+
     ]);
     $menu->Popup(qw/-popover cursor/);
 }
