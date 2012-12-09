@@ -196,7 +196,7 @@ sub pop_help {
     $window->bind('<Escape>' => sub { $window->destroy; });
     $window->bind('<Alt-o>'  => sub { $window->destroy; });
     $window->bind('<Prior>'  => sub { $rotext->yviewScroll(-1, 'pages'); });
-    $window->bind('<Next>'   => sub { $rotext->yviewScroll(1, 'pages'); });
+    $window->bind('<Next>'   => sub { $rotext->yviewScroll(1,  'pages'); });
 }
 
 # Read help text.
@@ -287,15 +287,15 @@ MSG
         $entry->Subwidget('arrow')->focus;
         $entry->Subwidget('arrow')->eventGenerate('<space>');
      } );
-    $window->bind('<Alt-f>'              => sub { $button->invoke } );
-    $window->bind('<Alt-n>'              => sub { $button->invoke } );
-    $window->bind('<Alt-p>'              => sub { $button->invoke } );
-    $window->bind('<Alt-c>'              => sub { $cps->select    } );
-    $window->bind('<Alt-b>'              => sub { $block->select  } );
-    $window->bind('<Alt-h>'              => sub { $char->select   } );
+    $window->bind('<Alt-f>' => sub { $button->invoke } );
+    $window->bind('<Alt-n>' => sub { $button->invoke } );
+    $window->bind('<Alt-p>' => sub { $button->invoke } );
+    $window->bind('<Alt-c>' => sub { $cps->select    } );
+    $window->bind('<Alt-b>' => sub { $block->select  } );
+    $window->bind('<Alt-h>' => sub { $char->select   } );
 
     # Save choices.
-    $window->bind('<Escape>'             => sub {
+    $window->bind('<Escape>' => sub {
         destroy_popup($window, $entry, $choices, $last_found_item);
     } );
     # When window closed by pressing on the cross or Alt + F4.
@@ -455,11 +455,13 @@ sub bind_keys {
         pop_find_window($main, $pane, $opt, $choices);
     } );
     $main->bind('<Home>'     => sub { $pane->yview(moveto => 0) } );
-    $main->bind('<End>'      => sub { $pane->yview(moveto => 1)  } );
+    $main->bind('<End>'      => sub { $pane->yview(moveto => 1) } );
     $main->bind('<Prior>'    => sub { $pane->yview(scroll => -0.9, 'pages') } );
-    $main->bind('<Next>'     => sub { $pane->yview(scroll => 0.9, 'pages')  } );
-    $main->bind('<Button-4>' => sub { $pane->yview(scroll => -0.3, 'pages')  } );
-    $main->bind('<Button-5>' => sub { $pane->yview(scroll => 0.3, 'pages')  } );
+    $main->bind('<Next>'     => sub { $pane->yview(scroll => 0.9,  'pages') } );
+    $main->bind('<Button-4>' => sub { $pane->yview(scroll => -0.3, 'pages') } );
+    $main->bind('<Button-5>' => sub { $pane->yview(scroll => 0.3,  'pages') } );
+    $main->bind('<Up>'       => sub { $pane->yview(scroll => -0.3, 'pages') } );
+    $main->bind('<Down>'     => sub { $pane->yview(scroll => 0.3,  'pages') } );
     my $selected_chars = {};
     $main->bind('<Button-1>' => sub {
         return
