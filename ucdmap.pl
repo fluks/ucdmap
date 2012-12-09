@@ -463,65 +463,66 @@ sub bind_keys {
     $main->bind('<Up>'       => sub { $pane->yview(scroll => -0.3, 'pages') } );
     $main->bind('<Down>'     => sub { $pane->yview(scroll => 0.3,  'pages') } );
     my $selected_chars = {};
-    $main->bind('<Button-1>' => sub {
-        return
-            if (index($_[0]->name, 'character') != 0);
-        select_char($selected_chars, $_[0]);
-    } );
-    # Ctrl + mouse button 1 can select area of characters.
-    # TODO Accept selecting no matter on what widget button was pressed.
-    # Scan through every shown blocks if not too slow.
-    my ($block, $sel_x1, $sel_y1) = (undef, 0, 0);
-    $main->bind('<Control-ButtonPress-1>' =>
-        [ \&start_mouse_select, \$block, \$sel_x1, \$sel_y1, Ev('X'), Ev('Y') ] );
-    $main->bind('<Control-ButtonRelease-1>' =>
-        [ \&end_mouse_select, $selected_chars, \$block, \$sel_x1, \$sel_y1, Ev('X'), Ev('Y') ] );
+    my ($sel_x1, $sel_y1) = (0, 0);
+    $main->bind('<ButtonPress-1>' =>
+        [ \&start_mouse_select, \$sel_x1, \$sel_y1, Ev('X'), Ev('Y') ] );
+    $main->bind('<ButtonRelease-1>' =>
+        [ \&end_mouse_select, $main, $selected_chars, \$sel_x1, \$sel_y1, Ev('X'), Ev('Y') ] );
     $main->bind('<Button-3>' => sub { popup_menu($_[0], $main, $selected_chars); } );
 }
 
-# Start selecting characters with ctrl + mouse button 1.
+# Start selecting characters with mouse button 1.
 # Parameters: - widget where button was pressed on (Tk::Widget)
-#             - a reference to save the parent of widget that was pressed on (ScaRef)
 #             - a reference to save x coordinate where button was pressed (ScaRef)
 #             - a reference to save y coordinate where button was pressed (ScaRef)
 #             - x coordinate where button was pressed (Int)
 #             - y coordinate where button was pressed (Int)
 sub start_mouse_select {
-    my ($widget, $block, $sel_x1, $sel_y1, $x, $y) = @_;
+    my (undef, $sel_x1, $sel_y1, $x, $y) = @_;
 
-    return
-        if (index($widget->name, 'character') != 0);
-
-    ($$block, $$sel_x1, $$sel_y1) = ($widget->parent, $x, $y);
+    ($$sel_x1, $$sel_y1) = ($x, $y);
 }
 
 # Find characters on selected area and select them.
-# Parameters: - discard widget where button was released
+# Parameters: - widget where button was pressed
+#             - Tk::MainWindow
 #             - selected characters (HashRef)
-#             - a reference to parent of a widget where button was pressed
 #             - a reference to save x coordinate where button was pressed (ScaRef)
 #             - a reference to save y coordinate where button was pressed (ScaRef)
 #             - x coordinate where button was released (Int)
 #             - y coordinate where button was released (Int)
 sub end_mouse_select {
-    my (undef, $selected_chars, $block, $sel_x1, $sel_y1, $sel_x2, $sel_y2) = @_;
+    my (undef, $main, $selected_chars, $sel_x1, $sel_y1, $sel_x2, $sel_y2) = @_;
 
     my $sel_square = { x1 => $$sel_x1, y1 => $$sel_y1, x2 => $sel_x2, y2 => $sel_y2 };
     switch_coords($sel_square);
 
     my @chars;
-    for my $l (${$block}->children) {
+    $main->Walk(sub {
+        my $w = shift;
+    
+        return
+            if (index($w->name, 'character') != 0);
+
         my $label_square = {};
-        ($label_square->{x1}, $label_square->{y1}) = ($l->rootx, $l->rooty);
+        ($label_square->{x1}, $label_square->{y1}) = ($w->rootx, $w->rooty);
         ($label_square->{x2}, $label_square->{y2}) =
-            ($label_square->{x1} + $l->width, $label_square->{y1} + $l->height);
+            ($label_square->{x1} + $w->width, $label_square->{y1} + $w->height);
 
         if (squares_intersect($sel_square, $label_square) ||
             lines_cross($sel_square, $label_square)) {
-            push @chars, $l;
+            push @chars, $w;
         }
+    });
+    
+    # Pressed and released over the same character. Select or unselect it.
+    if (@chars == 1) {
+        select_char($selected_chars, $chars[0]);
     }
-    select_all_chars($selected_chars, \@chars, 1);
+    # Selection area covers more than one character, select all of them.
+    else {
+        select_all_chars($selected_chars, \@chars, 1);
+    }
 }
 
 # Switch coordinates of the square area to have semantics of start and end,
@@ -712,7 +713,7 @@ Main window:
     Control + H - Show help
     Control + Q - Quit
 
-    Control + mouse button 1 - Select area of characters
+    Mouse button 1 - Select area of characters
 
 Find window:
 
