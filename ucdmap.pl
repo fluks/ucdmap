@@ -14,12 +14,10 @@ use Storable qw/retrieve/;
 use File::Basename;
 use Data::Dumper;
 use feature qw/state/;
-use constant {
-    HELP_WINDOW_NAME => 'help',
-    HELP_WINDOW_PATH => '.help',
-    FIND_WINDOW_NAME => 'find',
-    FIND_WINDOW_PATH => '.find',
-};
+use constant HELP_WINDOW_NAME => 'help';
+use constant HELP_WINDOW_PATH => '.' . HELP_WINDOW_NAME;
+use constant FIND_WINDOW_NAME => 'find';
+use constant FIND_WINDOW_PATH => '.' . FIND_WINDOW_NAME;
 
 my $options = {
     ucd_map          => undef,
@@ -185,7 +183,7 @@ sub pop_help {
 
     my $window = $main->Toplevel(Name => HELP_WINDOW_NAME, -title => 'Help');
     my $rotext = $window->Scrolled('ROText',
-                                   -width      => 40,
+                                   -width      => 45,
                                    -scrollbars => 'e')->pack;
     $rotext->insert('end', $$text);         
     $rotext->configure(qw/-padx 5 -pady 5/);
@@ -323,6 +321,8 @@ sub validate_choice {
     return 1;
 }
 
+# TODO Previous not working. CP not working well. In the end of block or characters an
+# extra search is needed to continue from the beginning.
 # Find blocks, CPs and character names.
 # Parameters: - Tk::Pane
 #             - selected radiobutton (HashRef)
@@ -458,6 +458,8 @@ sub bind_keys {
     $main->bind('<End>'      => sub { $pane->yview(moveto => 1)  } );
     $main->bind('<Prior>'    => sub { $pane->yview(scroll => -0.9, 'pages') } );
     $main->bind('<Next>'     => sub { $pane->yview(scroll => 0.9, 'pages')  } );
+    $main->bind('<Button-4>' => sub { $pane->yview(scroll => -0.3, 'pages')  } );
+    $main->bind('<Button-5>' => sub { $pane->yview(scroll => 0.3, 'pages')  } );
     my $selected_chars = {};
     $main->bind('<Button-1>' => sub {
         return
@@ -465,6 +467,8 @@ sub bind_keys {
         select_char($selected_chars, $_[0]);
     } );
     # Ctrl + mouse button 1 can select area of characters.
+    # TODO Accept selecting no matter on what widget button was pressed.
+    # Scan through every shown blocks if not too slow.
     my ($block, $sel_x1, $sel_y1) = (undef, 0, 0);
     $main->bind('<Control-ButtonPress-1>' =>
         [ \&start_mouse_select, \$block, \$sel_x1, \$sel_y1, Ev('X'), Ev('Y') ] );
@@ -636,8 +640,7 @@ sub popup_opened {
 sub popup_menu {
     my ($widget, $main, $selected_chars) = @_;
 
-    return
-        if (index($widget->name, 'character') != 0);
+    my $is_chararacter = index($widget->name, 'character') == 0;
 
     my $menu = $main->Menu(qw/-type normal -tearoff 0 -menuitems/ => [
         [
@@ -645,7 +648,8 @@ sub popup_menu {
             -command => sub {
                 $main->clipboardClear;
                 $main->clipboardAppend($widget->cget('-text'));
-            }
+            },
+            -state   => $is_chararacter ? 'normal' : 'disabled',
         ],
         [
             command  => 'CP to clipboard',
@@ -653,7 +657,8 @@ sub popup_menu {
                 $main->clipboardClear;
                 my $character = $widget->cget('-text');
                 $main->clipboardAppend(sprintf "%x", ord($character));
-            }
+            },
+            -state   => $is_chararacter ? 'normal' : 'disabled',
         ],
         '',
         [
@@ -674,13 +679,15 @@ sub popup_menu {
             command  => 'Select all in block',
             -command => sub {
                 select_all_chars($selected_chars, [ $widget->parent->children ], 1);
-            }
+            },
+            -state   => $is_chararacter ? 'normal' : 'disabled',
         ],
         [
             command  => 'Unselect all in block',
             -command => sub {
                 select_all_chars($selected_chars, [ $widget->parent->children ], 0);
-            }
+            },
+            -state   => $is_chararacter ? 'normal' : 'disabled',
         ],
 
     ]);
@@ -702,6 +709,8 @@ Main window:
     Control + F - Find
     Control + H - Show help
     Control + Q - Quit
+
+    Control + mouse button 1 - Select area of characters
 
 Find window:
 
