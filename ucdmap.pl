@@ -47,7 +47,7 @@ sub create_gui {
     my $menu = create_menu($main);
     $main->configure(-menu => $menu);
 
-    my $pane = $main->Scrolled('Pane', qw/-scrollbars se/);
+    my $pane = $main->Scrolled('Pane', qw/-scrollbars se -sticky w/);
     $pane->pack(qw/-fill both -expand 1 -side left -anchor w/);
     fill_pane($opt, $pane);
     $pane->focus;
@@ -282,7 +282,7 @@ MSG
                                            -value     => $radio{cp},
                                            -variable  => \$selected_radio)->pack(qw/-side left/);
 
-    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke  } );
+    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke } );
     $entry->bind('<Down>'                => sub {
         $entry->Subwidget('arrow')->focus;
         $entry->Subwidget('arrow')->eventGenerate('<space>');
