@@ -107,6 +107,7 @@ sub fill_pane {
         my $button = $frame->Button(-text     => $block,
                                     -image    => $arrow,
                                     -compound => 'left',
+                                    -anchor   => 'n',
                                     -relief   => 'flat')->
             pack(qw/-expand 1 -fill both -side left -padx 5 -anchor w/);
         $balloon->attach($button, -balloonmsg => cp_range($group));
