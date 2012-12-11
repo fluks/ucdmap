@@ -254,13 +254,17 @@ MSG
     # Save find states. Continue search where we're left.
     my ($group_index, $char_index) = (0, 0);
     my $last_found_item = { widget => undef, original_bg => undef };
+    my $last_search_term = '';
     my $button = $top_frame->Button(-text      => 'Find',
                                     -underline => 0,
                                     -command   => sub {
         return                                        
             unless validate_choice(\$choice, \%radio);
+        ($group_index, $char_index) = (0, 0)
+            if $last_search_term ne $choice;
         focus_find($pane, \%radio, \$choice, $opt, \$group_index, \$char_index, $last_found_item);
         add_choice_to_list(\$choice, $entry);                                        
+        $last_search_term = $choice;
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
