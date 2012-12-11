@@ -342,11 +342,12 @@ sub focus_find {
     my $regexp = qr/$$choice/i;
     for (; $$g_index < scalar @{ $opt->{ucd_map} }; $$g_index++) {
         my $group = $opt->{ucd_map}->[$$g_index];
-        my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
-        if (!defined $button || ref $button ne 'Tk::Button') {
+        # Just to be secure. Probably not needed?
+        if (!exists $opt->{button_paths}->[$$g_index]) {
             $$g_index++;
             next;
         }
+        my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
 
         if (${ $radio->{selected} } == $radio->{block}) {
             if (defined $group->{block} && $group->{block} =~ $regexp) {
