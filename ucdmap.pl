@@ -350,10 +350,11 @@ sub focus_find {
 
         if (${ $radio->{selected} } == $radio->{block}) {
             if (defined $group->{block} && $group->{block} =~ $regexp) {
+                $pane->yview($button);
+                $pane->xview($button);
                 $last_found_item->{widget} = $button;
                 $last_found_item->{original_bg} = $button->cget('-bg');
                 $button->configure(-bg => 'blue');
-                $pane->yview($button);
                 $$g_index++;
                 return;
             }
@@ -371,8 +372,9 @@ sub focus_find {
                     (${ $radio->{selected} } == $radio->{char} && $char->{name} =~ $regexp)) {
                     $button->invoke
                         unless is_visible($pane, $parent_path . '.frame');
-                    $pane->yview($button);
                     my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
+                    $pane->yview($char_widget);
+                    $pane->xview($char_widget);
                     $last_found_item->{widget} = $char_widget;
                     $last_found_item->{original_bg} = $char_widget->cget('-bg');
                     $char_widget->configure(-bg => 'blue');
