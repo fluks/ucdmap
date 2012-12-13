@@ -23,8 +23,10 @@ exit 0;
 # and for a character, keep only it's name and character point (cp).
 # Resulting data structure is:
 # [
-#   { block => ...,
-#     chars => [
+#   { block    => ...,
+#     first_cp => ...,
+#     last_cp  => ...,
+#     chars    => [
 #         { name => ..., cp => ... },
 #         ...
 #     ]
@@ -54,6 +56,9 @@ sub filter_excess {
             $new_ref->[$gi]->{chars}->[$ci]->{name} = $char->{na1} || $char->{na} || '?';
             ++$ci;
         }
+
+        $new_ref->[$gi]->{first_cp} = $chars->[0]->{cp};
+        $new_ref->[$gi]->{last_cp} = $chars->[-1]->{cp};
 
         $gi++;
     }

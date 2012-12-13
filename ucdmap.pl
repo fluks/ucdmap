@@ -157,9 +157,8 @@ sub fill_pane {
 sub cp_range {
     my $group = shift;
 
-    my $chars = $group->{chars};
-    my $first = $chars->[0]->{cp} // '?';
-    my $last  = $chars->[-1]->{cp} // '?';
+    my $first = $group->{first_cp} // '?';
+    my $last  = $group->{last_cp} // '?';
 
     return 'CP: ' . $first . '-' . $last;
 }
@@ -353,18 +352,17 @@ sub focus_find {
         }
         my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
 
-        if (${ $radio->{selected} } == $radio->{block}) {
-            if (defined $group->{block} && $group->{block} =~ $regexp) {
-                $pane->yview($button);
-                $pane->xview($button);
-                $last_found_item->{widget} = $button;
-                $last_found_item->{original_bg} = $button->cget('-bg');
-                $button->configure(-bg => 'blue');
-                $$g_index++;
-                return;
-            }
+        if (${ $radio->{selected} } == $radio->{block} && defined $group->{block} &&
+                $group->{block} =~ $regexp) {
+            $pane->yview($button);
+            $pane->xview($button);
+            $last_found_item->{widget} = $button;
+            $last_found_item->{original_bg} = $button->cget('-bg');
+            $button->configure(-bg => 'blue');
+            $$g_index++;
+            return;
         }
-        if (${ $radio->{selected} } == $radio->{char} || ${ $radio->{selected} } == $radio->{cp}) {
+        if (${ $radio->{selected} } == $radio->{char}) {
             my $char_path_end = '.frame.character';
             my $parent_path = $button->parent->PathName;
             my $char_path = $parent_path . $char_path_end;
@@ -372,9 +370,37 @@ sub focus_find {
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
 
-                if ((${ $radio->{selected} } == $radio->{cp} && defined $char->{cp} &&
-                    oct('0x' . $char->{cp}) == oct('0x' . $$choice)) ||
-                    (${ $radio->{selected} } == $radio->{char} && $char->{name} =~ $regexp)) {
+                if ($char->{name} =~ $regexp) {
+                    $button->invoke
+                        unless is_visible($pane, $parent_path . '.frame');
+                    my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
+                    $pane->yview($char_widget);
+                    $pane->xview($char_widget);
+                    $last_found_item->{widget} = $char_widget;
+                    $last_found_item->{original_bg} = $char_widget->cget('-bg');
+                    $char_widget->configure(-bg => 'blue');
+                    $$c_index++;
+                    return;
+                }
+            }
+            $$c_index = 0;
+        }
+        if (${ $radio->{selected} } == $radio->{cp}) {
+            if (!defined $group->{first_cp} || !defined $group->{last_cp} ||
+                (hex $$choice < hex $group->{first_cp} &&
+                hex $$choice > hex $group->{last_cp})) {
+                ++$$g_index;
+                next;
+            }
+
+            my $char_path_end = '.frame.character';
+            my $parent_path = $button->parent->PathName;
+            my $char_path = $parent_path . $char_path_end;
+
+            for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
+                my $char = $group->{chars}->[$$c_index];
+
+                if (defined $char->{cp} && oct('0x' . $char->{cp}) == oct('0x' . $$choice)) {
                     $button->invoke
                         unless is_visible($pane, $parent_path . '.frame');
                     my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
