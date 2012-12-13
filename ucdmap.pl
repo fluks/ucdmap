@@ -127,7 +127,7 @@ sub fill_pane {
                         my $cp = exists $char->{cp} ? $char->{cp} : undef;
                         my $label = $chars_frame->Label(
                             Name         => 'character',
-                            -text        => defined $cp ? chr(oct('0x' . $cp)) : '',
+                            -text        => defined $cp ? chr(hex $cp) : '',
                             -borderwidth => 1,
                             -relief      => 'groove')->
                                 grid(-row => $row, -column => $col++, -sticky => 'nsew');
@@ -400,7 +400,7 @@ sub focus_find {
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
 
-                if (defined $char->{cp} && oct('0x' . $char->{cp}) == oct('0x' . $$choice)) {
+                if (defined $char->{cp} && hex $char->{cp} == hex $$choice) {
                     $button->invoke
                         unless is_visible($pane, $parent_path . '.frame');
                     my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
