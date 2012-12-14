@@ -219,7 +219,7 @@ sub pop_find_window {
     my $window = $main->Toplevel(Name         => FIND_WINDOW_NAME,
                                  -title       => 'Find',
                                  -borderwidth => 5);
-    $window->geometry('-0+0');
+    $window->geometry('-0-0');
     my $balloon = $window->Balloon;
 
     my $top_frame = $window->Frame->pack(qw/-fill x -expand 1 -pady 5 -padx 5/);
@@ -259,9 +259,15 @@ MSG
                                     -command   => sub {
         return                                        
             unless validate_choice(\$choice, \%radio);
+        # Start search from the beginning if different search term.
         ($group_index, $char_index) = (0, 0)
             if $last_search_term ne $choice;
-        focus_find($pane, \%radio, \$choice, $opt, \$group_index, \$char_index, $last_found_item);
+        restore_last_found_item_bg($last_found_item);
+        if (defined ($last_found_item->{widget} =
+                focus_find($pane, \%radio, \$choice, $opt, \$group_index, \$char_index))) {
+            save_and_change_bg($last_found_item);
+            position_found_widget($last_found_item->{widget}, $pane); 
+        }
         add_choice_to_list(\$choice, $entry);                                        
         $last_search_term = $choice;
     })->pack(qw/-side left -anchor n/);
@@ -332,41 +338,29 @@ sub validate_choice {
 #             - selected radiobutton (HashRef)
 #             - entry value (Str)
 #             - options (HashRef)
-#             - group index, on which group last search was left
-#             - character index, on which character last search was left
-#             - last found widget (HashRef)
+#             - a reference to group index, on which group last search was left (ScaRef)
+#             - a reference to character index, on which character last search was left (ScaRef)
+# Returns:    widget which content matches search, or undef if no match found
 sub focus_find {
-    my ($pane, $radio, $choice, $opt, $g_index, $c_index, $last_found_item) = @_;
-
-    # Bring back original background of last matched widget. 
-    $last_found_item->{widget}->configure('-bg' => $last_found_item->{original_bg})
-        if defined $last_found_item->{widget};
+    my ($pane, $radio, $choice, $opt, $g_index, $c_index) = @_;
 
     my $regexp = qr/$$choice/i;
     for (; $$g_index < scalar @{ $opt->{ucd_map} }; $$g_index++) {
         my $group = $opt->{ucd_map}->[$$g_index];
         # Just to be secure. Probably not needed?
-        if (!exists $opt->{button_paths}->[$$g_index]) {
-            $$g_index++;
-            next;
-        }
+        next
+            unless exists $opt->{button_paths}->[$$g_index];
         my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
+        my $char_path_end = '.frame.character';
+        my $parent_path = $button->parent->PathName;
+        my $char_path = $parent_path . $char_path_end;
 
         if (${ $radio->{selected} } == $radio->{block} && defined $group->{block} &&
                 $group->{block} =~ $regexp) {
-            $pane->yview($button);
-            $pane->xview($button);
-            $last_found_item->{widget} = $button;
-            $last_found_item->{original_bg} = $button->cget('-bg');
-            $button->configure(-bg => 'blue');
             $$g_index++;
-            return;
+            return $button;
         }
-        if (${ $radio->{selected} } == $radio->{char}) {
-            my $char_path_end = '.frame.character';
-            my $parent_path = $button->parent->PathName;
-            my $char_path = $parent_path . $char_path_end;
-
+        elsif (${ $radio->{selected} } == $radio->{char}) {
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
 
@@ -374,28 +368,15 @@ sub focus_find {
                     $button->invoke
                         unless is_visible($pane, $parent_path . '.frame');
                     my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
-                    $pane->yview($char_widget);
-                    $pane->xview($char_widget);
-                    $last_found_item->{widget} = $char_widget;
-                    $last_found_item->{original_bg} = $char_widget->cget('-bg');
-                    $char_widget->configure(-bg => 'blue');
                     $$c_index++;
-                    return;
+                    return $char_widget;
                 }
             }
             $$c_index = 0;
         }
-        if (${ $radio->{selected} } == $radio->{cp}) {
-            if (!defined $group->{first_cp} || !defined $group->{last_cp} ||
-                (hex $$choice < hex $group->{first_cp} &&
-                hex $$choice > hex $group->{last_cp})) {
-                ++$$g_index;
-                next;
-            }
-
-            my $char_path_end = '.frame.character';
-            my $parent_path = $button->parent->PathName;
-            my $char_path = $parent_path . $char_path_end;
+        elsif (${ $radio->{selected} } == $radio->{cp}) {
+            next
+                unless cp_in_block($choice, $group);
 
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
@@ -404,19 +385,61 @@ sub focus_find {
                     $button->invoke
                         unless is_visible($pane, $parent_path . '.frame');
                     my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
-                    $pane->yview($char_widget);
-                    $pane->xview($char_widget);
-                    $last_found_item->{widget} = $char_widget;
-                    $last_found_item->{original_bg} = $char_widget->cget('-bg');
-                    $char_widget->configure(-bg => 'blue');
                     $$c_index++;
-                    return;
+                    return $char_widget;
                 }
             }
             $$c_index = 0;
         }
     }
     $$g_index = 0;
+
+    return undef;
+}
+
+# Restore background of the most recently found widget.
+# Parameters: last found item (HashRef)
+sub restore_last_found_item_bg {
+    my $last_found_item = shift;
+
+    $last_found_item->{widget}->configure('-bg' => $last_found_item->{original_bg})
+        if defined $last_found_item->{widget};
+}
+
+# Save original background of the found widget and change current background color.
+# Parameters: last found item (HashRef)
+sub save_and_change_bg {
+    my $last_found_item = shift;
+
+    my $widget = $last_found_item->{widget};
+    my $original_bg = $widget->cget('-bg');
+    $last_found_item->{original_bg} = $original_bg;
+
+    $widget->configure('-bg' => 'blue');
+}
+
+# Position the found widget to top left on the screen.
+# Parameters: - found widget (Tk::Widget)
+#             - Tk::Pane
+sub position_found_widget {
+    my ($widget, $pane) = @_;
+
+    $pane->yview($widget);
+    $pane->xview($widget);
+}
+
+# Check whether a code point belongs to a character block.
+# Parameters: - a search term, will be hexadecimal (ScaRef)
+#             - a character block (HashRef)
+# Returns:    false if first or last code point is unknown for a character block,
+#             or code point doesn't belong to block, true otherwise
+sub cp_in_block {
+    my ($choice, $group) = @_;
+
+    return 0
+        if (!defined $group->{first_cp} || !defined $group->{last_cp});
+    return    
+        (hex $$choice >= hex $group->{first_cp} && hex $$choice <= hex $group->{last_cp});
 }
 
 # Test is a widget shown.
