@@ -219,7 +219,7 @@ sub pop_find_window {
     my $window = $main->Toplevel(Name         => FIND_WINDOW_NAME,
                                  -title       => 'Find',
                                  -borderwidth => 5);
-    $window->geometry('-0+0');
+    $window->geometry('-0-0');
     my $balloon = $window->Balloon;
 
     my $top_frame = $window->Frame->pack(qw/-fill x -expand 1 -pady 5 -padx 5/);
@@ -259,6 +259,7 @@ MSG
                                     -command   => sub {
         return                                        
             unless validate_choice(\$choice, \%radio);
+        # Start search from the beginning if different search term.
         ($group_index, $char_index) = (0, 0)
             if $last_search_term ne $choice;
         focus_find($pane, \%radio, \$choice, $opt, \$group_index, \$char_index, $last_found_item);
@@ -346,11 +347,12 @@ sub focus_find {
     for (; $$g_index < scalar @{ $opt->{ucd_map} }; $$g_index++) {
         my $group = $opt->{ucd_map}->[$$g_index];
         # Just to be secure. Probably not needed?
-        if (!exists $opt->{button_paths}->[$$g_index]) {
-            $$g_index++;
-            next;
-        }
+        next
+            unless exists $opt->{button_paths}->[$$g_index];
         my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
+        my $char_path_end = '.frame.character';
+        my $parent_path = $button->parent->PathName;
+        my $char_path = $parent_path . $char_path_end;
 
         if (${ $radio->{selected} } == $radio->{block} && defined $group->{block} &&
                 $group->{block} =~ $regexp) {
@@ -362,11 +364,7 @@ sub focus_find {
             $$g_index++;
             return;
         }
-        if (${ $radio->{selected} } == $radio->{char}) {
-            my $char_path_end = '.frame.character';
-            my $parent_path = $button->parent->PathName;
-            my $char_path = $parent_path . $char_path_end;
-
+        elsif (${ $radio->{selected} } == $radio->{char}) {
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
 
@@ -385,17 +383,9 @@ sub focus_find {
             }
             $$c_index = 0;
         }
-        if (${ $radio->{selected} } == $radio->{cp}) {
-            if (!defined $group->{first_cp} || !defined $group->{last_cp} ||
-                (hex $$choice < hex $group->{first_cp} &&
-                hex $$choice > hex $group->{last_cp})) {
-                ++$$g_index;
-                next;
-            }
-
-            my $char_path_end = '.frame.character';
-            my $parent_path = $button->parent->PathName;
-            my $char_path = $parent_path . $char_path_end;
+        elsif (${ $radio->{selected} } == $radio->{cp}) {
+            next
+                unless cp_in_block($choice, $group);
 
             for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
                 my $char = $group->{chars}->[$$c_index];
@@ -417,6 +407,20 @@ sub focus_find {
         }
     }
     $$g_index = 0;
+}
+
+# Check whether a code point belongs to a character block.
+# Parameters: - a search term, will be hexadecimal (ScaRef)
+#             - a character block (HashRef)
+# Returns:    false if first or last code point is unknown for a character block,
+#             or code point doesn't belong to block, true otherwise
+sub cp_in_block {
+    my ($choice, $group) = @_;
+
+    return 0
+        if (!defined $group->{first_cp} || !defined $group->{last_cp});
+    return    
+        (hex $$choice >= hex $group->{first_cp} && hex $$choice <= hex $group->{last_cp});
 }
 
 # Test is a widget shown.
