@@ -18,6 +18,7 @@ use constant HELP_WINDOW_NAME => 'help';
 use constant HELP_WINDOW_PATH => '.' . HELP_WINDOW_NAME;
 use constant FIND_WINDOW_NAME => 'find';
 use constant FIND_WINDOW_PATH => '.' . FIND_WINDOW_NAME;
+use constant CHAR_WIDGET_NAME => 'character';
 
 my $options = {
     ucd_map          => undef,
@@ -126,7 +127,7 @@ sub fill_pane {
                     for my $char (@{ $group->{chars} }) {
                         my $cp = exists $char->{cp} ? $char->{cp} : undef;
                         my $label = $chars_frame->Label(
-                            Name         => 'character',
+                            Name         => CHAR_WIDGET_NAME,
                             -text        => defined $cp ? chr(hex $cp) : '',
                             -borderwidth => 1,
                             -relief      => 'groove')->
@@ -455,6 +456,15 @@ sub is_visible {
     return $widget->ismapped;
 }
 
+# Check is widget a character widget.
+# Parameters: Tk::widget
+# Returns:    true if widget is a character widget, false otherwise
+sub is_char_widget {
+    my $widget = shift;
+
+    return index($widget->name, CHAR_WIDGET_NAME) == 0;
+}
+
 # When searched, add search term (choice) to BrowseEntry's list of searches.
 # Save the same term only once and in alphabetic order.
 # Parameters: - a reference to search term (RefStr)
@@ -559,7 +569,7 @@ sub end_mouse_select {
         my $w = shift;
     
         return
-            if (index($w->name, 'character') != 0);
+            unless is_char_widget($w);
 
         my $label_square = {};
         ($label_square->{x1}, $label_square->{y1}) = ($w->rootx, $w->rooty);
@@ -700,7 +710,7 @@ sub popup_opened {
 sub popup_menu {
     my ($widget, $main, $selected_chars) = @_;
 
-    my $is_chararacter = index($widget->name, 'character') == 0;
+    my $is_chararacter = is_char_widget($widget);
 
     my $menu = $main->Menu(qw/-type normal -tearoff 0 -menuitems/ => [
         [
