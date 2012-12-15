@@ -346,8 +346,7 @@ sub focus_find {
     my ($pane, $radio, $choice, $opt, $g_index, $c_index) = @_;
 
     my $regexp = qr/$$choice/i;
-    for (; $$g_index < scalar @{ $opt->{ucd_map} }; $$g_index++) {
-        my $group = $opt->{ucd_map}->[$$g_index];
+    for (; defined (my $group = $opt->{ucd_map}->[$$g_index]); $$g_index++) {
         # Just to be secure. Probably not needed?
         next
             unless exists $opt->{button_paths}->[$$g_index];
@@ -362,9 +361,7 @@ sub focus_find {
             return $button;
         }
         elsif (${ $radio->{selected} } == $radio->{char}) {
-            for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
-                my $char = $group->{chars}->[$$c_index];
-
+            for (; defined (my $char = $group->{chars}->[$$c_index]); $$c_index++) {
                 if ($char->{name} =~ $regexp) {
                     $button->invoke
                         unless is_visible($pane, $parent_path . '.frame');
@@ -379,9 +376,7 @@ sub focus_find {
             next
                 unless cp_in_block($choice, $group);
 
-            for (; $$c_index < scalar @{ $group->{chars} }; $$c_index++) {
-                my $char = $group->{chars}->[$$c_index];
-
+            for (; defined (my $char = $group->{chars}->[$$c_index]); $$c_index++) {
                 if (defined $char->{cp} && hex $char->{cp} == hex $$choice) {
                     $button->invoke
                         unless is_visible($pane, $parent_path . '.frame');
