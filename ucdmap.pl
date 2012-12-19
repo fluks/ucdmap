@@ -231,7 +231,7 @@ sub pop_find_window {
         pack(qw/-side left -expand 1 -fill x -anchor n -padx 5/);
 
     # Restore possible earlier choices. TODO Pass array of choices to add_choice_to_list()?
-    add_choice_to_list(\$_, $entry) for @$choices;
+    add_choice_to_list($_, $entry) for @$choices;
 
     my $message =<<MSG;
 Perl regular expressions are supported.
@@ -251,26 +251,35 @@ MSG
         cp       => 2,
         none     => -1
     );
-    # Save find states. Continue search where we're left.
-    my ($group_index, $char_index) = (0, 0);
     my $last_found_item = { widget => undef, original_bg => undef };
     my $last_search_term = '';
+    my $last_radio_choice = $radio{none};
+    my $match_paths = [];
+    use constant {
+        PREVIOUS    => -1,
+        NEXT        => 1,
+        INDEX_START => -1
+    };
+    my $last_index = INDEX_START;
+    my $direction = NEXT;
     my $button = $top_frame->Button(-text      => 'Find',
                                     -underline => 0,
                                     -command   => sub {
         return                                        
-            unless validate_choice(\$choice, \%radio);
-        # Start search from the beginning if different search term.
-        ($group_index, $char_index) = (0, 0)
-            if $last_search_term ne $choice;
+            unless validate_choice($choice, \%radio);
         restore_last_found_item_bg($last_found_item);
-        if (defined ($last_found_item->{widget} =
-                focus_find($pane, \%radio, \$choice, $opt, \$group_index, \$char_index))) {
-            save_and_change_bg($last_found_item);
-            position_found_widget($last_found_item->{widget}, $pane); 
+        unless ($choice eq $last_search_term && $last_radio_choice == $selected_radio) {
+            $match_paths = find_matches($pane, \%radio, $choice, $opt);
+            $last_index = INDEX_START;
         }
-        add_choice_to_list(\$choice, $entry);                                        
+        if (defined ($last_found_item->{widget} =
+                show_found_item($match_paths, $pane, \$last_index, $direction))) {
+            save_and_change_bg($last_found_item);
+            position_found_widget($last_found_item->{widget}, $pane);
+        }
+        add_choice_to_list($choice, $entry);
         $last_search_term = $choice;
+        $last_radio_choice = $selected_radio;
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
@@ -293,17 +302,29 @@ MSG
                                            -value     => $radio{cp},
                                            -variable  => \$selected_radio)->pack(qw/-side left/);
 
-    $entry->bind('Tk::Entry', '<Return>' => sub { $button->invoke } );
-    $entry->bind('<Down>'                => sub {
+    $entry->bind('Tk::Entry', '<Return>' => sub {
+        $direction = NEXT;
+        $button->invoke;
+    } );
+    $window->bind('<Alt-f>' => sub {
+        $direction = NEXT;
+        $button->invoke;
+    } );
+    $window->bind('<Alt-n>' => sub {
+        $direction = NEXT;
+        $button->invoke;
+    } );
+    $window->bind('<Alt-p>' => sub {
+        $direction = PREVIOUS;
+        $button->invoke;
+    } );
+    $window->bind('<Alt-c>' => sub { $cps->select   } );
+    $window->bind('<Alt-b>' => sub { $block->select } );
+    $window->bind('<Alt-h>' => sub { $char->select  } );
+    $entry->bind('<Down>'   => sub {
         $entry->Subwidget('arrow')->focus;
         $entry->Subwidget('arrow')->eventGenerate('<space>');
      } );
-    $window->bind('<Alt-f>' => sub { $button->invoke } );
-    $window->bind('<Alt-n>' => sub { $button->invoke } );
-    $window->bind('<Alt-p>' => sub { $button->invoke } );
-    $window->bind('<Alt-c>' => sub { $cps->select    } );
-    $window->bind('<Alt-b>' => sub { $block->select  } );
-    $window->bind('<Alt-h>' => sub { $char->select   } );
 
     # Save choices.
     $window->bind('<Escape>' => sub {
@@ -315,82 +336,105 @@ MSG
     } );
 }
 
+# Show found character entry.
+# Parameters: - paths of matching widgets (ArrayRef)
+#             - Tk::Pane
+#             - index of last shown widget (IntRef)
+#             - next(1) or previous(-1) match (Int)
+# Returns:    next found widget or undef if none found or something unexpected happened
+sub show_found_item {
+    my ($match_paths, $pane, $last_index, $direction) = @_;
+
+    return undef
+        unless @$match_paths;
+
+    # Index out of bounds, so set index either to 0 or to last.
+    $$last_index = $#{ $match_paths }
+        if (($$last_index += $direction) < 0);
+    $$last_index = 0
+        if $$last_index > $#{ $match_paths };
+
+    my $button = $pane->Widget($match_paths->[$$last_index]);
+    # Path is a button path.
+    return $button
+        if defined $button;
+
+    # Path is a character path.
+    $match_paths->[$$last_index] =~ /(.*)(\.\w+){2}$/;
+    my $outer_frame_path = $1;
+    my $outer_frame = undef;
+    unless (defined ($outer_frame = $pane->Widget($outer_frame_path))) {
+        return undef;
+    }
+    ($button, my $char_frame) = $outer_frame->children;
+    $button->invoke
+        unless is_visible($pane, $char_frame->PathName);
+
+    return $pane->Widget($match_paths->[$$last_index]);
+}
+
 # Validate entered search term.
 # Only really for code point search.
-# Parameters: - a reference to search term (RefStr)
+# Parameters: - a search term (Str)
 #             - selected radiobutton (HashRef)
 # Returns:    true if valid search term, false otherwise            
 sub validate_choice {
     my ($choice, $radio) = @_;
 
     return 0
-        unless $$choice;
+        unless $choice;
     return 0
         if ${ $radio->{selected} } == $radio->{none};
     return 0
-        if (${ $radio->{selected} } == $radio->{cp} && $$choice !~ m/^[a-h0-9]+$/i);
+        if (${ $radio->{selected} } == $radio->{cp} && $choice !~ m/^[a-h0-9]+$/i);
     return 1;
 }
 
-# TODO Previous not working. CP not working well. In the end of block or characters an
-# extra search is needed to continue from the beginning.
-# Find blocks, CPs and character names.
+# Find paths for character names and blocks and CPs.
 # Parameters: - Tk::Pane
 #             - selected radiobutton (HashRef)
 #             - entry value (Str)
 #             - options (HashRef)
-#             - a reference to group index, on which group last search was left (ScaRef)
-#             - a reference to character index, on which character last search was left (ScaRef)
-# Returns:    widget which content matches search, or undef if no match found
-sub focus_find {
-    my ($pane, $radio, $choice, $opt, $g_index, $c_index) = @_;
+# Returns:    a reference to paths of widgets which content matches search,
+#             or empty list if no matches found
+sub find_matches {
+    my ($pane, $radio, $choice, $opt) = @_;
 
-    my $regexp = qr/$$choice/i;
-    for (; defined (my $group = $opt->{ucd_map}->[$$g_index]); $$g_index++) {
+    my @match_paths;
+    my $regexp = qr/$choice/i;
+    for (my $i = 0; defined (my $group = $opt->{ucd_map}->[$i]); $i++) {
         # Just to be secure. Probably not needed?
         next
-            unless exists $opt->{button_paths}->[$$g_index];
-        my $button = $pane->Widget($opt->{button_paths}->[$$g_index]);
+            unless exists $opt->{button_paths}->[$i];
+        my $button = $pane->Widget($opt->{button_paths}->[$i]);
         my $char_path_end = '.frame.character';
         my $parent_path = $button->parent->PathName;
         my $char_path = $parent_path . $char_path_end;
 
         if (${ $radio->{selected} } == $radio->{block} && defined $group->{block} &&
                 $group->{block} =~ $regexp) {
-            $$g_index++;
-            return $button;
+            push @match_paths, $opt->{button_paths}->[$i];
         }
         elsif (${ $radio->{selected} } == $radio->{char}) {
-            for (; defined (my $char = $group->{chars}->[$$c_index]); $$c_index++) {
+            for (my $j = 0; defined (my $char = $group->{chars}->[$j]); $j++) {
                 if ($char->{name} =~ $regexp) {
-                    $button->invoke
-                        unless is_visible($pane, $parent_path . '.frame');
-                    my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
-                    $$c_index++;
-                    return $char_widget;
+                    push @match_paths, $char_path . ($j || '');
                 }
             }
-            $$c_index = 0;
         }
         elsif (${ $radio->{selected} } == $radio->{cp}) {
             next
                 unless cp_in_block($choice, $group);
 
-            for (; defined (my $char = $group->{chars}->[$$c_index]); $$c_index++) {
-                if (defined $char->{cp} && hex $char->{cp} == hex $$choice) {
-                    $button->invoke
-                        unless is_visible($pane, $parent_path . '.frame');
-                    my $char_widget = $pane->Widget($char_path . ($$c_index || ''));
-                    $$c_index++;
-                    return $char_widget;
+            for (my $j = 0; defined (my $char = $group->{chars}->[$j]); $j++) {
+                if (defined $char->{cp} && hex $char->{cp} == hex $choice) {
+                    push @match_paths, $char_path . ($j || '');
                 }
             }
-            $$c_index = 0;
         }
     }
-    $$g_index = 0;
 
-    return undef;
+    return \@match_paths;
 }
 
 # Restore background of the most recently found widget.
@@ -425,7 +469,7 @@ sub position_found_widget {
 }
 
 # Check whether a code point belongs to a character block.
-# Parameters: - a search term, will be hexadecimal (ScaRef)
+# Parameters: - a search term, will be hexadecimal (Str)
 #             - a character block (HashRef)
 # Returns:    false if first or last code point is unknown for a character block,
 #             or code point doesn't belong to block, true otherwise
@@ -435,7 +479,7 @@ sub cp_in_block {
     return 0
         if (!defined $group->{first_cp} || !defined $group->{last_cp});
     return    
-        (hex $$choice >= hex $group->{first_cp} && hex $$choice <= hex $group->{last_cp});
+        (hex $choice >= hex $group->{first_cp} && hex $choice <= hex $group->{last_cp});
 }
 
 # Test is a widget shown.
@@ -462,7 +506,7 @@ sub is_char_widget {
 
 # When searched, add search term (choice) to BrowseEntry's list of searches.
 # Save the same term only once and in alphabetic order.
-# Parameters: - a reference to search term (RefStr)
+# Parameters: - search term (Str)
 #             - Tk::BrowseEntry
 sub add_choice_to_list {
     my ($choice, $entry) = @_;
@@ -471,10 +515,10 @@ sub add_choice_to_list {
 
     my $i;
     for ($i = 0; $i < scalar @set; $i++) {
-        return if $$choice eq $set[$i];
-        last if ($$choice cmp $set[$i]) < 0;
+        return if $choice eq $set[$i];
+        last if ($choice cmp $set[$i]) < 0;
     }
-    $entry->insert(($i > $#set ? 'end' : $i), $$choice);
+    $entry->insert(($i > $#set ? 'end' : $i), $choice);
 }
 
 # When destroying popup window, save choices list.
@@ -487,9 +531,7 @@ sub add_choice_to_list {
 sub destroy_popup {
     my ($window, $entry, $choices, $last_found_item) = @_;
 
-    # Clear background of a found widget.
-    $last_found_item->{widget}->configure('-bg' => $last_found_item->{original_bg})
-        if defined $last_found_item->{widget};
+    restore_last_found_item_bg($last_found_item);
 
     push @$choices, $entry->get(0, 'end');
     $window->destroy;
