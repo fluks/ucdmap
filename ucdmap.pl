@@ -12,7 +12,6 @@ use Tk::widgets qw/PNG/;
 use Tk::BrowseEntry;
 use Storable qw/retrieve/;
 use File::Basename;
-use Data::Dumper;
 use feature qw/state/;
 use constant HELP_WINDOW_NAME => 'help';
 use constant HELP_WINDOW_PATH => '.' . HELP_WINDOW_NAME;
@@ -68,12 +67,6 @@ sub create_menu {
             Button       => '~Quit',
             -command     => sub { quit($main) },
             -accelerator => 'Ctrl+Q'
-        ],
-    ]);
-    $menu->cascade(qw/-label ~Edit -tearoff 0 -menuitems/ => [
-        [
-            Button   => '~Preferences',
-            -command => sub { }
         ],
     ]);
     $menu->cascade(qw/-label ~About -tearoff 0 -menuitems/ => [
@@ -566,6 +559,8 @@ sub bind_keys {
     $main->bind('<Button-5>' => sub { $pane->yview(scroll => 0.3,  'pages') } );
     $main->bind('<Up>'       => sub { $pane->yview(scroll => -0.3, 'pages') } );
     $main->bind('<Down>'     => sub { $pane->yview(scroll => 0.3,  'pages') } );
+    $main->bind('<Left>'     => sub { $pane->xview(scroll => -1,  'units')  } );
+    $main->bind('<Right>'    => sub { $pane->xview(scroll => 1,  'units')   } );
     my $selected_chars = {};
     my ($sel_x1, $sel_y1) = (0, 0);
     $main->bind('<ButtonPress-1>' =>
