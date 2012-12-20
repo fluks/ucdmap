@@ -19,6 +19,8 @@ use constant FIND_WINDOW_NAME => 'find';
 use constant FIND_WINDOW_PATH => '.' . FIND_WINDOW_NAME;
 use constant CHAR_WIDGET_NAME => 'character';
 
+our $VERSION = '0.01';
+
 my $options = {
     ucd_map          => undef,
     ucd_default_file => 'ucd.nstor',
@@ -350,9 +352,11 @@ sub show_found_item {
     my $button = $pane->Widget($match_paths->[$$last_index]);
     # Path is a button path.
     return $button
-        if defined $button;
+        if ref $button eq 'Tk::Button';
 
     # Path is a character path.
+    # XXX Once a character block is shown and later hidden, in this stage $button contains
+    # a Tk::Label instance. TODO exploit it?
     $match_paths->[$$last_index] =~ /(.*)(\.\w+){2}$/;
     my $outer_frame_path = $1;
     my $outer_frame = undef;
