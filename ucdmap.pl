@@ -278,10 +278,14 @@ MSG
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
-    my $previous = $mid_frame->Button(qw/-text Previous -underline 0/)->
-        pack(qw/-side right -anchor n -padx 2/);
-    my $next = $mid_frame->Button(qw/-text Next -underline 0/)->
-        pack(qw/-side right -anchor n -padx 2/);
+    my $previous = $mid_frame->Button(qw/-text Previous -underline 0/, -command => sub {
+        $direction = PREVIOUS;
+        $button->invoke;
+    })->pack(qw/-side right -anchor n -padx 2/);
+    my $next = $mid_frame->Button(qw/-text Next -underline 0/, -command => sub {
+        $direction = NEXT;
+        $button->invoke;
+    })->pack(qw/-side right -anchor n -padx 2/);
 
     my $bottom_frame = $window->Frame->pack(qw/-fill both -expand 1/);
     my $block = $bottom_frame->Radiobutton(-text      => 'Block name',
