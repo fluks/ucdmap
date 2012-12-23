@@ -46,22 +46,26 @@ sub create_gui {
     $main->packPropagate(0);
     $main->optionAdd('*font', 'Cursor');
 
-    my $menu = create_menu($main);
-    $main->configure(-menu => $menu);
-
     my $pane = $main->Scrolled('Pane', qw/-scrollbars se -sticky w/);
     $pane->pack(qw/-fill both -expand 1 -side left -anchor w/);
     fill_pane($opt, $pane);
     $pane->focus;
 
-    bind_keys($main, $pane, $opt);
+    # Store all the search terms.
+    my @choices = ();
+    my $menu = create_menu($main, $pane, \@choices, $opt);
+    $main->configure(-menu => $menu);
+
+    bind_keys($main, $pane, $opt, \@choices);
 }
 
 # Create menu.
-# Parameters: Tk::MainWindow
+# Parameters: - Tk::MainWindow
+#             - Tk::Pane
+#             - (ArrayRef)
 # Returns:    Tk::Menu
 sub create_menu {
-    my $main = shift;
+    my ($main, $pane, $choices, $opt) = @_;
 
     my $menu = $main->Menu(-type => 'normal');
     $menu->cascade(qw/-label ~File -tearoff 0 -menuitems/ => [
@@ -69,6 +73,18 @@ sub create_menu {
             Button       => '~Quit',
             -command     => sub { quit($main) },
             -accelerator => 'Ctrl+Q'
+        ],
+    ]);
+    $menu->cascade(qw/-label ~Edit -tearoff 0 -menuitems/ => [
+        [
+            Button       => '~Find',
+            -command     => sub {
+                return
+                    if popup_opened($main, FIND_WINDOW_PATH);
+                pop_find_window($main, $pane, $opt, $choices);
+
+            },
+            -accelerator => 'Ctrl+F'
         ],
     ]);
     $menu->cascade(qw/-label ~About -tearoff 0 -menuitems/ => [
@@ -541,9 +557,10 @@ sub destroy_popup {
 # Bind keys.
 # Parameters: - Tk::MainWindow
 #             - Tk::Pane
-#             - options
+#             - options (HashRef)
+#             - list to store searches (ArrayRef)
 sub bind_keys {
-    my ($main, $pane, $opt) = @_;
+    my ($main, $pane, $opt, $choices) = @_;
 
     $main->bind('<Control-q>' => sub { quit($main) } );
     $main->bind('<Control-h>' => sub {
@@ -552,8 +569,6 @@ sub bind_keys {
             if popup_opened($main, HELP_WINDOW_PATH);
         pop_help($main);
     } );
-    # Need to declare here, because BrowseEntry's -choices doesn't work with autolimitheight.
-    my $choices = [];
     $main->bind('<Control-f>' => sub {
         return
             if popup_opened($main, FIND_WINDOW_PATH);
