@@ -254,7 +254,7 @@ MSG
     $entry->focus;
 
     # Selected radio button.
-    state $selected_radio = -1;
+    state $selected_radio = 0;
     my %radio = (
         selected => \$selected_radio,
         block    => 0,
