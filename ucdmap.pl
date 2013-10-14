@@ -42,6 +42,8 @@ sub create_gui {
     my ($opt) = @_;
 
     my $main = MainWindow->new(-title => basename($0));
+    my $icon = $main->Photo(-file => './res/108px-Unicode_logo.svg.png', -format => 'png');
+    $main->Icon(-image => $icon);
     $main->FullScreen;
     $main->packPropagate(0);
     $main->optionAdd('*font', 'Cursor');
