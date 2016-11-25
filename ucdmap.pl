@@ -143,6 +143,8 @@ sub fill_pane {
                             Name         => CHAR_WIDGET_NAME,
                             -text        => defined $cp ? chr(hex $cp) : '',
                             -borderwidth => 1,
+                            -height      => 2,
+                            -width       => 2,
                             -relief      => 'groove')->
                                 grid(-row => $row, -column => $col++, -sticky => 'nsew');
                         $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
