@@ -29,7 +29,6 @@ my $options = {
     button_paths => []
 };
 
-$options->{ucd_file} = $ARGV[0] if @ARGV;
 $options->{ucd_map} = retrieve($options->{ucd_file});
 create_gui($options);
 
