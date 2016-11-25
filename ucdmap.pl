@@ -44,7 +44,7 @@ sub create_gui {
     $main->Icon(-image => $icon);
     $main->FullScreen;
     $main->packPropagate(0);
-    $main->optionAdd('*font', 'Cursor');
+    $main->optionAdd('*font', 'Cursor 16');
 
     my $pane = $main->Scrolled('Pane', qw/-scrollbars se -sticky w/);
     $pane->pack(qw/-fill both -expand 1 -side left -anchor w/);
