@@ -19,16 +19,16 @@ use constant FIND_WINDOW_NAME => 'find';
 use constant FIND_WINDOW_PATH => '.' . FIND_WINDOW_NAME;
 use constant CHAR_WIDGET_NAME => 'character';
 
+our $VERSION = '0.01';
+
 my $options = {
-    ucd_map          => undef,
-    ucd_default_file => 'ucd.nstor',
-    ucd_file         => 'ucd.nstor',
-    button_image     => 'arrow.png',
+    ucd_map      => undef,
+    ucd_file     => './res/ucd.nstor',
+    button_image => './res/arrow.png',
     # Save pathnames of buttons to make it easier to find widgets.
-    button_paths     => []
+    button_paths => []
 };
 
-$options->{ucd_file} = $ARGV[0] if @ARGV;
 $options->{ucd_map} = retrieve($options->{ucd_file});
 create_gui($options);
 
@@ -40,26 +40,32 @@ sub create_gui {
     my ($opt) = @_;
 
     my $main = MainWindow->new(-title => basename($0));
+    my $icon = $main->Photo(-file => './res/108px-Unicode_logo.svg.png', -format => 'png');
+    $main->Icon(-image => $icon);
     $main->FullScreen;
     $main->packPropagate(0);
-    $main->optionAdd('*font', 'Cursor');
-
-    my $menu = create_menu($main);
-    $main->configure(-menu => $menu);
+    $main->optionAdd('*font', 'Cursor 16');
 
     my $pane = $main->Scrolled('Pane', qw/-scrollbars se -sticky w/);
     $pane->pack(qw/-fill both -expand 1 -side left -anchor w/);
     fill_pane($opt, $pane);
     $pane->focus;
 
-    bind_keys($main, $pane, $opt);
+    # Store all the search terms.
+    my @choices = ();
+    my $menu = create_menu($main, $pane, \@choices, $opt);
+    $main->configure(-menu => $menu);
+
+    bind_keys($main, $pane, $opt, \@choices);
 }
 
 # Create menu.
-# Parameters: Tk::MainWindow
+# Parameters: - Tk::MainWindow
+#             - Tk::Pane
+#             - (ArrayRef)
 # Returns:    Tk::Menu
 sub create_menu {
-    my $main = shift;
+    my ($main, $pane, $choices, $opt) = @_;
 
     my $menu = $main->Menu(-type => 'normal');
     $menu->cascade(qw/-label ~File -tearoff 0 -menuitems/ => [
@@ -67,6 +73,18 @@ sub create_menu {
             Button       => '~Quit',
             -command     => sub { quit($main) },
             -accelerator => 'Ctrl+Q'
+        ],
+    ]);
+    $menu->cascade(qw/-label ~Edit -tearoff 0 -menuitems/ => [
+        [
+            Button       => '~Find',
+            -command     => sub {
+                return
+                    if popup_opened($main, FIND_WINDOW_PATH);
+                pop_find_window($main, $pane, $opt, $choices);
+
+            },
+            -accelerator => 'Ctrl+F'
         ],
     ]);
     $menu->cascade(qw/-label ~About -tearoff 0 -menuitems/ => [
@@ -123,6 +141,8 @@ sub fill_pane {
                             Name         => CHAR_WIDGET_NAME,
                             -text        => defined $cp ? chr(hex $cp) : '',
                             -borderwidth => 1,
+                            -height      => 2,
+                            -width       => 2,
                             -relief      => 'groove')->
                                 grid(-row => $row, -column => $col++, -sticky => 'nsew');
                         $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
@@ -236,7 +256,7 @@ MSG
     $entry->focus;
 
     # Selected radio button.
-    state $selected_radio = -1;
+    state $selected_radio = 0;
     my %radio = (
         selected => \$selected_radio,
         block    => 0,
@@ -276,10 +296,14 @@ MSG
     })->pack(qw/-side left -anchor n/);
 
     my $mid_frame = $window->Frame->pack(qw/-fill x -expand 1/);
-    my $previous = $mid_frame->Button(qw/-text Previous -underline 0/)->
-        pack(qw/-side right -anchor n -padx 2/);
-    my $next = $mid_frame->Button(qw/-text Next -underline 0/)->
-        pack(qw/-side right -anchor n -padx 2/);
+    my $previous = $mid_frame->Button(qw/-text Previous -underline 0/, -command => sub {
+        $direction = PREVIOUS;
+        $button->invoke;
+    })->pack(qw/-side right -anchor n -padx 2/);
+    my $next = $mid_frame->Button(qw/-text Next -underline 0/, -command => sub {
+        $direction = NEXT;
+        $button->invoke;
+    })->pack(qw/-side right -anchor n -padx 2/);
 
     my $bottom_frame = $window->Frame->pack(qw/-fill both -expand 1/);
     my $block = $bottom_frame->Radiobutton(-text      => 'Block name',
@@ -350,9 +374,11 @@ sub show_found_item {
     my $button = $pane->Widget($match_paths->[$$last_index]);
     # Path is a button path.
     return $button
-        if defined $button;
+        if ref $button eq 'Tk::Button';
 
     # Path is a character path.
+    # XXX Once a character block is shown and later hidden, in this stage $button contains
+    # a Tk::Label instance. TODO exploit it?
     $match_paths->[$$last_index] =~ /(.*)(\.\w+){2}$/;
     my $outer_frame_path = $1;
     my $outer_frame = undef;
@@ -533,9 +559,10 @@ sub destroy_popup {
 # Bind keys.
 # Parameters: - Tk::MainWindow
 #             - Tk::Pane
-#             - options
+#             - options (HashRef)
+#             - list to store searches (ArrayRef)
 sub bind_keys {
-    my ($main, $pane, $opt) = @_;
+    my ($main, $pane, $opt, $choices) = @_;
 
     $main->bind('<Control-q>' => sub { quit($main) } );
     $main->bind('<Control-h>' => sub {
@@ -544,8 +571,6 @@ sub bind_keys {
             if popup_opened($main, HELP_WINDOW_PATH);
         pop_help($main);
     } );
-    # Need to declare here, because BrowseEntry's -choices doesn't work with autolimitheight.
-    my $choices = [];
     $main->bind('<Control-f>' => sub {
         return
             if popup_opened($main, FIND_WINDOW_PATH);
