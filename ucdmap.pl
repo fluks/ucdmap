@@ -22,12 +22,11 @@ use constant CHAR_WIDGET_NAME => 'character';
 our $VERSION = '0.01';
 
 my $options = {
-    ucd_map          => undef,
-    ucd_default_file => 'ucd.nstor',
-    ucd_file         => 'ucd.nstor',
-    button_image     => 'arrow.png',
+    ucd_map      => undef,
+    ucd_file     => './res/ucd.nstor',
+    button_image => './res/arrow.png',
     # Save pathnames of buttons to make it easier to find widgets.
-    button_paths     => []
+    button_paths => []
 };
 
 $options->{ucd_file} = $ARGV[0] if @ARGV;
