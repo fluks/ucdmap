@@ -1,4 +1,30 @@
 #!/usr/bin/env perl
+
+# charprop is extremely slow to go through all unicode characters. This
+# should speed it up. https://www.perlmonks.org/?node_id=1221135
+package MyUnicodeUCD;
+
+use warnings;
+use strict;
+
+use constant EXPORT_OK => [
+    qw(charprop prop_invmap),
+];
+
+use Unicode::UCD @{EXPORT_OK()};
+
+use Exporter;
+our @ISA=qw(Exporter);
+our @EXPORT_OK = @{EXPORT_OK()};
+
+use Memoize;
+memoize 'prop_invmap';
+*Unicode::UCD::prop_invmap = \&prop_invmap;
+
+1;
+
+package main;
+
 use warnings;
 use strict;
 use Tk;
@@ -10,29 +36,58 @@ use Tk::Wm;
 use Tk::Font;
 use Tk::widgets qw/PNG/;
 use Tk::BrowseEntry;
-use Storable qw/retrieve/;
 use File::Basename;
+use Unicode::UCD qw(charblocks charinfo charblock);
+use Storable;
+use File::HomeDir;
+use File::Spec;
+use File::Path qw(make_path);
 use feature qw/state/;
 use constant HELP_WINDOW_NAME => 'help';
 use constant HELP_WINDOW_PATH => '.' . HELP_WINDOW_NAME;
 use constant FIND_WINDOW_NAME => 'find';
 use constant FIND_WINDOW_PATH => '.' . FIND_WINDOW_NAME;
 use constant CHAR_WIDGET_NAME => 'character';
+use constant CONFIG_DIR => File::Spec->catfile(File::HomeDir->my_home, '.config', 'ucdmap');
+use constant CONFIG_CHARNAMES_FILE => File::Spec->catfile(CONFIG_DIR, 'charnames.bin');
+use Data::Dumper;
 
 our $VERSION = '0.01';
 
 my $options = {
-    ucd_map      => undef,
-    ucd_file     => './res/ucd.nstor',
     button_image => './res/arrow.png',
     # Save pathnames of buttons to make it easier to find widgets.
     button_paths => []
 };
 
-$options->{ucd_map} = retrieve($options->{ucd_file});
+if (-e CONFIG_CHARNAMES_FILE) {
+    $options->{charnames} = retrieve(CONFIG_CHARNAMES_FILE);
+}
+else {
+    print "Creating character name map...\n";
+    $options->{charnames} = get_all_charnames();
+    make_path(CONFIG_DIR);
+    store $options->{charnames}, CONFIG_CHARNAMES_FILE;
+}
+
 create_gui($options);
 
 MainLoop;
+
+# Create a hash for code point to character name. It's needed for quick name
+# search.
+sub get_all_charnames {
+    my $charnames = {};
+    for my $block (keys %{charblocks()}) {
+        my $range = charblock($block)->[0];
+        for (my $j = 0; $range->[0] + $j <= $range->[1]; $j++) {
+            my $name = MyUnicodeUCD::charprop($range->[0] + $j, 'name');
+            $charnames->{$range->[0] + $j} = $name;
+        }
+    }
+
+    return $charnames;
+}
 
 # Create gui.
 # Parameters: options
@@ -113,16 +168,17 @@ sub fill_pane {
     # Cache characters, otherwise pressing same character block, would create
     # the same characters again and consume memory.
     my $char_cache = {};
-    for my $group (@{ $opt->{ucd_map} }) {
+    my %charblocks = %{charblocks()};
+    for my $group (sort { $charblocks{$a}->[0]->[0] <=> $charblocks{$b}->[0]->[0] } keys %charblocks) {
         my $frame = $pane->Frame->grid(qw/-sticky nw/);
-        my $block = $group->{block};
-        my $button = $frame->Button(-text     => $block,
+        my ($block_start, $block_end) = @{$charblocks{$group}->[0]};
+        my $button = $frame->Button(-text     => $group,
                                     -image    => $arrow,
                                     -compound => 'left',
                                     -anchor   => 'n',
                                     -relief   => 'flat')->
             pack(qw/-expand 1 -fill both -side left -padx 5 -anchor w/);
-        $balloon->attach($button, -balloonmsg => cp_range($group));
+        $balloon->attach($button, -balloonmsg => 'CP: ' . $block_start . '-' . $block_end);
 
         push @{ $opt->{button_paths} }, $button->PathName;
 
@@ -135,17 +191,22 @@ sub fill_pane {
                 my $id = $button->id;
                 unless (exists $char_cache->{$id}) {
                     my ($row, $col, $CHAR_COLUMNS_MAX) = (0, 0, 50);
-                    for my $char (@{ $group->{chars} }) {
-                        my $cp = exists $char->{cp} ? $char->{cp} : undef;
+                    for my $cp ($block_start .. $block_end) {
                         my $label = $chars_frame->Label(
                             Name         => CHAR_WIDGET_NAME,
-                            -text        => defined $cp ? chr(hex $cp) : '',
+                            # Crashes for example when emoticons is opened.
+                            -text        => defined $cp ? chr($cp) : '',
                             -borderwidth => 1,
                             -height      => 2,
                             -width       => 2,
                             -relief      => 'groove')->
                                 grid(-row => $row, -column => $col++, -sticky => 'nsew');
-                        $balloon->attach($label, -balloonmsg => ($cp || 'NO CP') . "\n" . $char->{name});
+                        my $msg = 'Code: ' . (sprintf("0x%.4x", $cp) || 'NO CP');
+                        my $info = charinfo($cp);
+                        if ($info) {
+                            $msg .= "\nName: $info->{name}\nScript: $info->{script}";
+                        }
+                        $balloon->attach($label, -balloonmsg => $msg);
 
                         if ($col % $CHAR_COLUMNS_MAX == 0) {
                             $col = 0;
@@ -163,18 +224,6 @@ sub fill_pane {
             $is_visible = !$is_visible;
         });
     }
-}
-
-# Find character point range for a character block.
-# Parameters: character block (ArrayRef)
-# Returns:    character point range (Str)
-sub cp_range {
-    my $group = shift;
-
-    my $first = $group->{first_cp} // '?';
-    my $last  = $group->{last_cp} // '?';
-
-    return 'CP: ' . $first . '-' . $last;
 }
 
 # Quit program.
@@ -421,7 +470,10 @@ sub find_matches {
 
     my @match_paths;
     my $regexp = qr/$choice/i;
-    for (my $i = 0; defined (my $group = $opt->{ucd_map}->[$i]); $i++) {
+    my %charblocks = %{charblocks()};
+    my @groups = sort { $charblocks{$a}->[0]->[0] <=> $charblocks{$b}->[0]->[0] } keys %charblocks;
+    GROUPS: for (my $i = 0; $i < scalar @groups; $i++) {
+        my $group = $groups[$i];
         # Just to be secure. Probably not needed?
         next
             unless exists $opt->{button_paths}->[$i];
@@ -430,24 +482,27 @@ sub find_matches {
         my $parent_path = $button->parent->PathName;
         my $char_path = $parent_path . $char_path_end;
 
-        if (${ $radio->{selected} } == $radio->{block} && defined $group->{block} &&
-                $group->{block} =~ $regexp) {
+        if (${ $radio->{selected} } == $radio->{block} && $group =~ $regexp) {
             push @match_paths, $opt->{button_paths}->[$i];
         }
         elsif (${ $radio->{selected} } == $radio->{char}) {
-            for (my $j = 0; defined (my $char = $group->{chars}->[$j]); $j++) {
-                if ($char->{name} =~ $regexp) {
+            my $range = charblock($group)->[0];
+            for (my $j = 0; $range->[0] + $j <= $range->[1]; $j++) {
+                my $name = $opt->{charnames}->{$range->[0] + $j};
+                if ($name && $name =~ $regexp) {
                     push @match_paths, $char_path . ($j || '');
                 }
             }
         }
         elsif (${ $radio->{selected} } == $radio->{cp}) {
+            my $range = charblock($group)->[0];
             next
-                unless cp_in_block($choice, $group);
+                if (hex $choice < $range->[0] || hex $choice > $range->[1]);
 
-            for (my $j = 0; defined (my $char = $group->{chars}->[$j]); $j++) {
-                if (defined $char->{cp} && hex $char->{cp} == hex $choice) {
+            for (my $j = 0; $range->[0] + $j <= $range->[1]; $j++) {
+                if ($range->[0] + $j == hex $choice) {
                     push @match_paths, $char_path . ($j || '');
+                    last GROUPS;
                 }
             }
         }
@@ -485,20 +540,6 @@ sub position_found_widget {
 
     $pane->yview($widget);
     $pane->xview($widget);
-}
-
-# Check whether a code point belongs to a character block.
-# Parameters: - a search term, will be hexadecimal (Str)
-#             - a character block (HashRef)
-# Returns:    false if first or last code point is unknown for a character block,
-#             or code point doesn't belong to block, true otherwise
-sub cp_in_block {
-    my ($choice, $group) = @_;
-
-    return 0
-        if (!defined $group->{first_cp} || !defined $group->{last_cp});
-    return    
-        (hex $choice >= hex $group->{first_cp} && hex $choice <= hex $group->{last_cp});
 }
 
 # Test is a widget shown.
