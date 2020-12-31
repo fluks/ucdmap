@@ -50,12 +50,12 @@ use constant FIND_WINDOW_PATH => '.' . FIND_WINDOW_NAME;
 use constant CHAR_WIDGET_NAME => 'character';
 use constant CONFIG_DIR => File::Spec->catfile(File::HomeDir->my_home, '.config', 'ucdmap');
 use constant CONFIG_CHARNAMES_FILE => File::Spec->catfile(CONFIG_DIR, 'charnames.bin');
-use Data::Dumper;
+use File::ShareDir qw(dist_file);
 
 our $VERSION = '0.01';
 
 my $options = {
-    button_image => './res/arrow.png',
+    button_image => dist_file('ucdmap', 'arrow.png'),
     # Save pathnames of buttons to make it easier to find widgets.
     button_paths => []
 };
@@ -95,7 +95,7 @@ sub create_gui {
     my ($opt) = @_;
 
     my $main = MainWindow->new(-title => basename($0));
-    my $icon = $main->Photo(-file => './res/108px-Unicode_logo.svg.png', -format => 'png');
+    my $icon = $main->Photo(-file => dist_file('ucdmap', '108px-Unicode_logo.svg.png'), -format => 'png');
     $main->Icon(-image => $icon);
     $main->FullScreen;
     $main->packPropagate(0);

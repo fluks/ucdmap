@@ -5,7 +5,11 @@ run, a character database is created for quick character name search.
 
 ## Install
 
-TODO
+```
+perl Makefile.PL
+make
+sudo make install
+```
 
 ## Screenshots
 
