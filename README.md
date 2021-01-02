@@ -17,6 +17,8 @@ make
 sudo make install
 ```
 
+Or use [AppImage](https://github.com/fluks/ucdmap/releases/download/v0.1.0/ucdmap.appimage-0.1.0-x86_64.AppImage).
+
 ## Screenshots
 
 ![Ucdmap](ucdmap.png)
