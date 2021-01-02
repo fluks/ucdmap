@@ -3,6 +3,12 @@
 Unicode character map in Perl/Tk. Note that on the first time the program is
 run, a character database is created for quick character name search.
 
+## Requirements
+
+- Tk
+- File::ShareDir
+- File::ShareDir::Install
+
 ## Install
 
 ```
