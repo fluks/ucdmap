@@ -1,0 +1,50 @@
+version: 1
+script:
+  # Remove any previous build
+  - rm -rf AppDir  | true
+  - cpan -i File::ShareDir::Install
+  - perl Makefile.PL INSTALL_BASE=AppDir
+  - make
+  - make install
+
+AppDir:
+  path: ./AppDir
+
+  app_info:
+    id: com.github.fluks.ucdmap
+    name: ucdmap appimage
+    icon: utilities-terminal
+    version: 0.1.0
+    # Set the perl executable as entry point
+    exec: usr/bin/perl
+    # Set the application main script path as argument. Use '$@' to forward CLI parameters
+    exec_args: "$APPDIR/bin/ucdmap.pl $@"
+
+  apt:
+    arch: amd64
+    sources:
+      - sourceline: 'deb [arch=amd64] http://archive.ubuntu.com/ubuntu/ bionic main restricted universe multiverse'
+        key_url: 'http://keyserver.ubuntu.com/pks/lookup?op=get&search=0x3b4fe6acc0b21f32'
+
+    include:
+      - perl
+      - perl-tk
+      - libfile-sharedir-perl
+      - libfile-homedir-perl
+    exclude: []
+
+  files:
+    exclude:
+      - usr/share/doc
+      - usr/share/doc-base
+      - usr/share/man
+
+  runtime:
+    env:
+      PATH: '${APPDIR}/bin:${PATH}'
+      PERL5LIB: '${APPDIR}/usr/share/perl/5.26.1/:${APPDIR}/usr/lib/x86_64-linux-gnu/perl/5.26.1:${APPDIR}/usr/lib/x86_64-linux-gnu/perl5/5.26:${APPDIR}/usr/share/perl5:${APPDIR}/lib/perl5'
+
+AppImage:
+  update-information: 'gh-releases-zsync|AppImageCrafters|python-appimage-example|latest|python-appimage-*x86_64.AppImage.zsync'
+  sign-key: None
+  arch: x86_64
