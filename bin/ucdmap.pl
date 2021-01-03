@@ -529,7 +529,7 @@ sub save_and_change_bg {
     my $original_bg = $widget->cget('-bg');
     $last_found_item->{original_bg} = $original_bg;
 
-    $widget->configure('-bg' => 'blue');
+    $widget->configure('-bg' => 'lightblue');
 }
 
 # Position the found widget to top left on the screen.
