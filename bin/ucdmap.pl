@@ -51,6 +51,7 @@ use constant CHAR_WIDGET_NAME => 'character';
 use constant CONFIG_DIR => File::Spec->catfile(File::HomeDir->my_home, '.config', 'ucdmap');
 use constant CONFIG_CHARNAMES_FILE => File::Spec->catfile(CONFIG_DIR, 'charnames.bin');
 use File::ShareDir qw(dist_file);
+use Fcntl qw(:flock);
 
 our $VERSION = '0.01';
 
@@ -60,19 +61,45 @@ my $options = {
     button_paths => []
 };
 
+my $pid;
 if (-e CONFIG_CHARNAMES_FILE) {
     $options->{charnames} = retrieve(CONFIG_CHARNAMES_FILE);
 }
 else {
-    print "Creating character name map...\n";
-    $options->{charnames} = get_all_charnames();
-    make_path(CONFIG_DIR);
-    store $options->{charnames}, CONFIG_CHARNAMES_FILE;
+    # Any known file is good for locking. The child needs a lock first.
+    my $file = lock_file(dist_file('ucdmap', 'arrow.png'));
+    $pid = fork();
+    if ($pid == 0) {
+        print "Creating character name map...\n";
+        my $charnames = get_all_charnames();
+        make_path(CONFIG_DIR);
+        store $charnames, CONFIG_CHARNAMES_FILE;
+        # $fh is duped when forking.
+        unlock_file($file);
+        print "done!\n";
+        exit;
+    }
 }
 
-create_gui($options);
+create_gui($options, $pid);
 
 MainLoop;
+
+sub lock_file {
+    my ($file) = @_;
+
+    open(my $fh, '<', $file) || die "Can't open for locking $file: $!";
+    flock($fh, LOCK_EX) || die "Can't lock file $file: $!";
+
+    return { filehandle => $fh, name => $file, };
+}
+
+sub unlock_file {
+    my ($file) = @_;
+
+    flock($file->{filehandle}, LOCK_UN) || die "Can't unlock file " . $file->{name} . ": $!";
+    close($file->{filehandle}) || warn "Can't close file " . $file->{name} . ": $!";
+}
 
 # Create a hash for code point to character name. It's needed for quick name
 # search.
@@ -92,7 +119,7 @@ sub get_all_charnames {
 # Create gui.
 # Parameters: options
 sub create_gui {
-    my ($opt) = @_;
+    my ($opt, $pid) = @_;
 
     my $main = MainWindow->new(-title => basename($0));
     my $icon = $main->Photo(-file => dist_file('ucdmap', '108px-Unicode_logo.svg.png'), -format => 'png');
@@ -112,6 +139,34 @@ sub create_gui {
     $main->configure(-menu => $menu);
 
     bind_keys($main, $pane, $opt, \@choices);
+
+    if ($pid) {
+        show_mapping_info($main, $opt);
+    }
+}
+
+sub show_mapping_info {
+    my ($main, $opt) = @_;
+
+    my $text = 'Creating character name map';
+    my $window = $main->Toplevel(-title => $text);
+    $window->Label('-text', $text)->pack;
+    my $label = $window->Label(qw/-text Waiting.../)->pack;
+    # Almost center.
+    $window->geometry('+' . ($main->screenwidth / 2) .  '+' . ($main->screenheight / 2));
+
+    my $id;
+    $id = $window->repeat(1000, sub {
+        $label->configure('-text', $label->cget('-text') . '.');
+        if (-e CONFIG_CHARNAMES_FILE) {
+            # Possibly wait to make sure that the mapping is written fully to disk.
+            my $file = lock_file(dist_file('ucdmap', 'arrow.png'));
+            $opt->{charnames} = retrieve(CONFIG_CHARNAMES_FILE);
+            unlock_file($file);
+            $id->cancel;
+            $window->destroy;
+        }
+    });
 }
 
 # Create menu.
