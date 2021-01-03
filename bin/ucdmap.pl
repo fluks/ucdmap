@@ -178,7 +178,7 @@ sub fill_pane {
                                     -anchor   => 'n',
                                     -relief   => 'flat')->
             pack(qw/-expand 1 -fill both -side left -padx 5 -anchor w/);
-        $balloon->attach($button, -balloonmsg => 'CP: ' . $block_start . '-' . $block_end);
+        $balloon->attach($button, -balloonmsg => 'Code points: ' . sprintf('0x%.4x', $block_start) . '-' . sprintf('0x%.4x', $block_end));
 
         push @{ $opt->{button_paths} }, $button->PathName;
 
