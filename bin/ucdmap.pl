@@ -166,8 +166,8 @@ sub add_find_frame {
     my $message =<<MSG;
 Perl regular expressions are supported.
 The search is case-insensitive.
-Code points are stored as hexadecimals, regular expressions are not used for them.
-For example, 'A' is '0041', leading zeros are not required.
+Code point can be either decimal or hexadecimal and started with an 'x'. 'x41' and
+'65' is 'A'.
 MSG
     my $balloon = $frame->Balloon;
     $balloon->attach($entry->Subwidget('entry'), -balloonmsg => $message);
@@ -483,7 +483,7 @@ sub validate_choice {
     return 0
         if ${ $radio->{selected} } == $radio->{none};
     return 0
-        if (${ $radio->{selected} } == $radio->{cp} && $choice !~ m/^[a-h0-9]+$/i);
+        if (${ $radio->{selected} } == $radio->{cp} && $choice !~ m/(^x[a-h0-9]+)|[0-9]+$/i);
     return 1;
 }
 
@@ -524,12 +524,13 @@ sub find_matches {
             }
         }
         elsif (${ $radio->{selected} } == $radio->{cp}) {
+            my $base_10_choice = substr($choice, 0, 1) eq 'x' ? hex $choice : $choice;
             my $range = charblock($group)->[0];
             next
-                if (hex $choice < $range->[0] || hex $choice > $range->[1]);
+                if ($base_10_choice < $range->[0] || $base_10_choice > $range->[1]);
 
             for (my $j = 0; $range->[0] + $j <= $range->[1]; $j++) {
-                if ($range->[0] + $j == hex $choice) {
+                if ($range->[0] + $j == $base_10_choice) {
                     push @match_paths, $char_path . ($j || '');
                     last GROUPS;
                 }
