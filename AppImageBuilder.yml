@@ -14,7 +14,7 @@ AppDir:
     id: com.github.fluks.ucdmap
     name: ucdmap appimage
     icon: utilities-terminal
-    version: 0.1.0
+    version: 0.2.0
     # Set the perl executable as entry point
     exec: usr/bin/perl
     # Set the application main script path as argument. Use '$@' to forward CLI parameters

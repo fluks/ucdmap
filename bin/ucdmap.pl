@@ -53,7 +53,7 @@ use constant CONFIG_CHARNAMES_FILE => File::Spec->catfile(CONFIG_DIR, 'charnames
 use File::ShareDir qw(dist_file);
 use Fcntl qw(:flock);
 
-our $VERSION = '0.01';
+our $VERSION = '0.20';
 
 my $options = {
     button_image => dist_file('ucdmap', 'arrow.png'),
