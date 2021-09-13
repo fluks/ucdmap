@@ -175,7 +175,7 @@ MSG
     $balloon->attach($entry->Subwidget('entry'), -balloonmsg => $message);
 
     # Selected radio button.
-    state $selected_radio = 0;
+    state $selected_radio = 1;
     my %radio = (
         selected => \$selected_radio,
         block    => 0,
