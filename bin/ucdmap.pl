@@ -146,6 +146,8 @@ sub create_gui {
     if ($pid) {
         show_mapping_info($main, $opt);
     }
+
+    $main->Widget('.frame.frame.browseentry')->focus;
 }
 
 sub add_find_frame {
