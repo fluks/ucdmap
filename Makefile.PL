@@ -27,3 +27,10 @@ WriteMakefile(
 
 package MY;
 use File::ShareDir::Install qw(postamble);
+
+sub postamble {
+	return <<TARGET;
+win_package:
+	pp -M Tk::PNG -o ucdmap.exe -a data;lib\auto\share\dist\ucdmap --link libpng16-16__.dll --link zlib1__.dll -x -u --gui bin\ucdmap.pl
+TARGET
+}
