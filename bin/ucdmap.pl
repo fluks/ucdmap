@@ -127,7 +127,8 @@ sub create_gui {
     $main->Icon(-image => $icon);
     $main->FullScreen;
     $main->packPropagate(0);
-    $main->optionAdd('*font', 'Cursor 16');
+    $main->optionAdd('*font', '-*-arial-normal-r-*-*-*-220-*-*-*-*-*-*');
+    $main->optionAdd('*borderWidth', 1);
 
     my @choices = ();
     add_find_frame($main, $opt, \@choices);
