@@ -34,8 +34,10 @@ use Tk::ROText;
 use Tk::Menu;
 use Tk::Wm;
 use Tk::Font;
+use Tk::FontDialog;
 use Tk::widgets qw/PNG/;
 use Tk::BrowseEntry;
+use Tk::Dialog;
 use File::Basename;
 use Unicode::UCD qw(charblocks charinfo charblock);
 use Storable;
@@ -45,13 +47,18 @@ use File::Path qw(make_path);
 use feature qw/state/;
 use constant HELP_WINDOW_NAME => 'help';
 use constant HELP_WINDOW_PATH => '.' . HELP_WINDOW_NAME;
+use constant SETTINGS_WINDOW_NAME => 'settings';
+use constant SETTINGS_WINDOW_PATH => '.' . SETTINGS_WINDOW_NAME;
 use constant FIND_WINDOW_NAME => 'find';
 use constant FIND_WINDOW_PATH => '.' . FIND_WINDOW_NAME;
 use constant CHAR_WIDGET_NAME => 'character';
 use constant CONFIG_DIR => File::Spec->catfile(File::HomeDir->my_home, '.config', 'ucdmap');
 use constant CONFIG_CHARNAMES_FILE => File::Spec->catfile(CONFIG_DIR, 'charnames.bin');
+use constant CONFIG_SETTINGS_FILE => File::Spec->catfile(CONFIG_DIR, 'settings.json');
 use File::ShareDir qw(dist_file);
-use Fcntl qw(:flock);
+use Fcntl qw(:flock :seek);
+use JSON::PP;
+use Try::Tiny;
 
 our $VERSION = '0.20';
 
@@ -129,6 +136,7 @@ sub create_gui {
     $main->packPropagate(0);
     $main->optionAdd('*font', '-*-arial-normal-r-*-*-*-220-*-*-*-*-*-*');
     $main->optionAdd('*borderWidth', 1);
+    $main->protocol('WM_DELETE_WINDOW', sub { on_destroy($main); });
 
     my @choices = ();
     add_find_frame($main, $opt, \@choices);
@@ -148,7 +156,36 @@ sub create_gui {
         show_mapping_info($main, $opt);
     }
 
+    if (my $settings = load_settings($main)) {
+        apply_settings($settings, $main);
+    }
+
     $main->Widget('.frame.frame.browseentry')->focus;
+}
+
+# Parameters: - main (Tk::MainWindow)
+sub on_destroy {
+    my ($main) = @_;
+
+    if (my @choices = $main->Widget('.frame.frame.browseentry')->get(0, 'end')) {
+        my $settings = load_settings($main) || {};
+        $settings->{'choices'} = \@choices;
+        write_settings($settings, $main);
+    }
+    $main->destroy;
+}
+
+# Parameters: - settings (HashRef)
+#             - main window (Tk::MainWindow)
+sub apply_settings {
+    my ($settings, $main) = @_;
+
+    $main->RefontTree(-font => $settings->{'font'}) if $settings->{'font'};
+
+    if ($settings->{'choices'}) {
+        my $entry = $main->Widget('.frame.frame.browseentry');
+        add_choice_to_list($_, $entry) for @{ $settings->{'choices'} };
+    }
 }
 
 sub add_find_frame {
@@ -293,7 +330,7 @@ sub show_mapping_info {
 # Parameters: - Tk::MainWindow
 #             - Tk::Pane
 #             - (ArrayRef)
-# Returns:    Tk::Menu
+# Returns: Tk::Menu
 sub create_menu {
     my ($main, $pane, $choices, $opt) = @_;
 
@@ -301,23 +338,42 @@ sub create_menu {
     $menu->cascade(qw/-label ~File -tearoff 0 -menuitems/ => [
         [
             Button       => '~Quit',
-            -command     => sub { quit($main) },
+            -command     => sub { on_destroy($main); },
             -accelerator => 'Ctrl+Q'
+        ],
+    ]);
+    $menu->cascade(qw/-label ~Edit -tearoff 0 -menuitems/ => [
+        [
+            Button       => '~Settings',
+            -command     => sub { open_settings($main) },
+            -accelerator => 'Ctrl+S',
         ],
     ]);
     $menu->cascade(qw/-label ~About -tearoff 0 -menuitems/ => [
         [
             Button       => '~Help',
-            -command     => sub {
-                return
-                    if popup_opened($main, HELP_WINDOW_PATH);
-                pop_help($main);
-            },
+            -command     => sub { open_help($main) },
             -accelerator => 'Ctrl+H'
         ],
     ]);
 
     return $menu;
+}
+
+sub open_settings {
+    my ($main) = @_;
+
+    return
+        if popup_opened($main, SETTINGS_WINDOW_PATH);
+    pop_settings($main);
+}
+
+sub open_help {
+    my ($main) = @_;
+
+    return
+        if popup_opened($main, HELP_WINDOW_PATH);
+    pop_help($main);
 }
 
 # Fill pane with ucd block names, ucd blocks and balloons of cp ranges.
@@ -389,14 +445,6 @@ sub fill_pane {
     }
 }
 
-# Quit program.
-# Parameters: Tk::MainWindow
-sub quit {
-    my $main = shift;
-
-    $main->destroy;
-}
-
 # Show help window.
 # Parameters: - Tk::MainWindow
 sub pop_help {
@@ -423,6 +471,119 @@ sub pop_help {
     $window->bind('<Alt-o>'  => sub { $window->destroy; });
     $window->bind('<Prior>'  => sub { $rotext->yviewScroll(-1, 'pages'); });
     $window->bind('<Next>'   => sub { $rotext->yviewScroll(1,  'pages'); });
+}
+
+# Show settings window.
+# Parameters: - Tk::MainWindow
+sub pop_settings {
+    my ($main) = @_;
+
+    my $window = $main->Toplevel(Name => SETTINGS_WINDOW_NAME, -title => 'Settings');
+    $window->geometry('+' . ($main->screenwidth / 2) .  '+' . ($main->screenheight / 2));
+
+    my $settings_frame = $window->Frame->pack(qw/-pady 10 -expand 1/);
+    my $row = 0;
+    $settings_frame->Label(qw/-text Font/)->grid(
+        -row    => $row,
+        -column => 0,
+        -sticky => 'nsew',
+        -padx => [ 0, 5 ]);
+
+    my $font;
+    $settings_frame->Button(-text => 'Open', -underline => 1, -command => sub {
+        $font = $settings_frame->FontDialog(qw/-nicefontsbutton 0 -fixedfontsbutton 0/)->Show;
+    })->grid(-row => $row++, -column => 1);
+
+    my $buttons_frame = $window->Frame->pack(qw/-expand 1/);
+    $buttons_frame->Button(
+        -text      => 'Cancel',
+        -underline => 0,
+        -command   => sub { $window->destroy; })->pack(-side => 'left', -padx => [ 0, 10 ]);
+    my $destroy = sub {
+        my $settings = load_settings($window) || {};
+        if ($font) {
+            $main->RefontTree(-font => $font);
+
+            $settings->{'font'} = $main->GetDescriptiveFontName($font);
+            write_settings($settings, $window);
+        }
+
+        $window->destroy;
+    };
+    $buttons_frame->Button(
+        -text      => 'Ok',
+        -underline => 0,
+        -command   => $destroy)->pack(qw/-side left/);
+
+    $window->bind('<Escape>'    => sub { $window->destroy; });
+    $window->bind('<Control-p>' => sub {
+        $font = $settings_frame->FontDialog(qw/-nicefontsbutton 0 -fixedfontsbutton 0/)->Show;
+    });
+    $window->bind('<Alt-c>'     => sub { $window->destroy; });
+    $window->bind('<Alt-o>'     => $destroy);
+
+    $window->focus;
+}
+
+# Parameters: - widget (Tk::Widget)
+# Returns: settings (HashRef)
+sub load_settings {
+    my ($widget) = @_;
+
+    open(my $fh, '<', CONFIG_SETTINGS_FILE) || do {
+        my $msg = "Couldn't open " . CONFIG_SETTINGS_FILE . ": $!";
+        warn $msg;
+        return;
+    };
+    my $settings;
+    local $/ = undef;
+    if (defined(my $content = <$fh>)) {
+        try {
+            $settings = JSON::PP->new->relaxed->decode($content);
+        }
+        catch {
+            my $msg = "Couldn't decode settings: $_";
+            warn $msg;
+            popup_error($msg, $widget);
+        }
+    }
+
+    close($fh) || warn "Couldn't close filehandle " . CONFIG_SETTINGS_FILE . ": $!";
+
+    return $settings;
+}
+
+# Parameters: - settings (HashRef)
+#             - widget (Tk::Widget)
+sub write_settings {
+    my ($settings, $widget) = @_;
+
+    open(my $fh, '>', CONFIG_SETTINGS_FILE) || do {
+        my $msg = "Couldn't open " . CONFIG_SETTINGS_FILE . ": $!";
+        warn $msg;
+        popup_error($msg, $widget);
+        return;
+    };
+
+    print $fh JSON::PP->new->canonical->pretty->encode($settings);
+
+    close($fh) || do {
+        my $msg = "Couldn't close filehandle " . CONFIG_SETTINGS_FILE . ": $!";
+        warn $msg;
+        popup_error($msg, $widget);
+    };
+}
+
+# Parameters: - message (Str)
+#             - widget (Tk::Widget)
+sub popup_error {
+    my ($msg, $widget) = @_;
+
+    $widget->Dialog(
+        -title => 'Error',
+        -text => $msg,
+        -bitmap => 'error',
+        -buttons => [ 'Ok' ],)->Show;
 }
 
 # Read help text.
@@ -622,23 +783,19 @@ sub add_choice_to_list {
 sub bind_keys {
     my ($main, $pane, $opt, $choices) = @_;
 
-    $main->bind('<Control-q>' => sub { quit($main) } );
-    $main->bind('<Control-h>' => sub {
-        # TODO Try to return a ref to toplevel and check that way.
-        return
-            if popup_opened($main, HELP_WINDOW_PATH);
-        pop_help($main);
-    } );
-    $main->bind('<Home>'     => sub { $pane->yview(moveto => 0) } );
-    $main->bind('<End>'      => sub { $pane->yview(moveto => 1) } );
-    $main->bind('<Prior>'    => sub { $pane->yview(scroll => -0.9, 'pages') } );
-    $main->bind('<Next>'     => sub { $pane->yview(scroll => 0.9,  'pages') } );
-    $main->bind('<Button-4>' => sub { $pane->yview(scroll => -0.3, 'pages') } );
-    $main->bind('<Button-5>' => sub { $pane->yview(scroll => 0.3,  'pages') } );
-    $main->bind('<Up>'       => sub { $pane->yview(scroll => -0.3, 'pages') } );
-    $main->bind('<Down>'     => sub { $pane->yview(scroll => 0.3,  'pages') } );
-    $main->bind('<Left>'     => sub { $pane->xview(scroll => -1,  'units')  } );
-    $main->bind('<Right>'    => sub { $pane->xview(scroll => 1,  'units')   } );
+    $main->bind('<Control-q>' => sub { on_destroy($main); });
+    $main->bind('<Control-h>' => sub { open_help($main); });
+    $main->bind('<Control-s>' => sub { open_settings($main); });
+    $main->bind('<Home>'      => sub { $pane->yview(moveto => 0) } );
+    $main->bind('<End>'       => sub { $pane->yview(moveto => 1) } );
+    $main->bind('<Prior>'     => sub { $pane->yview(scroll => -0.9, 'pages') } );
+    $main->bind('<Next>'      => sub { $pane->yview(scroll => 0.9,  'pages') } );
+    $main->bind('<Button-4>'  => sub { $pane->yview(scroll => -0.3, 'pages') } );
+    $main->bind('<Button-5>'  => sub { $pane->yview(scroll => 0.3,  'pages') } );
+    $main->bind('<Up>'        => sub { $pane->yview(scroll => -0.3, 'pages') } );
+    $main->bind('<Down>'      => sub { $pane->yview(scroll => 0.3,  'pages') } );
+    $main->bind('<Left>'      => sub { $pane->xview(scroll => -1,  'units')  } );
+    $main->bind('<Right>'     => sub { $pane->xview(scroll => 1,  'units')   } );
     my $selected_chars = {};
     my ($sel_x1, $sel_y1) = (0, 0);
     $main->bind('<ButtonPress-1>' =>
@@ -888,6 +1045,7 @@ Main window:
 
     Control + I - Find
     Control + H - Show help
+    Control + S - Show settings
     Control + Q - Quit
 
     Mouse button 1 - Select area of characters

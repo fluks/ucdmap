@@ -14,7 +14,9 @@ WriteMakefile(
     SIGN => 1,
     PREREQ_PM => {
         Tk => 0,
+        'Tk::FontDialog' => 0,
         'File::ShareDir' => 0,
+        'Try::Tiny' => 0,
     },
     CONFIGURE_REQUIRES => {
         'ExtUtils::MakeMaker' => 0,
