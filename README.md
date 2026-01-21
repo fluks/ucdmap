@@ -6,6 +6,8 @@ run, a character database is created for quick character name search.
 ## Requirements
 
 - Tk
+- Tk::FontDialog
+- Try::Tiny
 - File::ShareDir
 - File::ShareDir::Install
 
