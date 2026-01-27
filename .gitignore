@@ -7,3 +7,5 @@ Makefile
 AppDir/
 appimage-builder-cache/
 *.zsync
+appimage-build/
+*.AppImage*

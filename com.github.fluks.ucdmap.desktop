@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=1.1
+Type=Application
+Name=ucdmap
+Comment=Unicode character map
+Icon=ucdmap
+Exec=perl ucdmap.pl
+Categories=Utility;
