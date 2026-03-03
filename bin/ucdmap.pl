@@ -412,7 +412,19 @@ sub fill_pane {
                 # Any individual key will do.
                 my $id = $button->id;
                 unless (exists $char_cache->{$id}) {
-                    my ($row, $col, $CHAR_COLUMNS_MAX) = (0, 0, 50);
+                    # Calculate how many character cells fit in the available width.
+                    # A temporary label is used to measure cell pixel width, then
+                    # we subtract the button column width from the screen width.
+                    my $tmp = $chars_frame->Label(-text => 'X', -width => 2,
+                                                  -borderwidth => 1, -relief => 'groove');
+                    $tmp->update;
+                    my $cell_w = $tmp->reqwidth || 1;
+                    $tmp->destroy;
+                    my $btn_w  = $button->width || $button->reqwidth || 1;
+                    my $avail  = $pane->screenwidth - $btn_w - 40;
+                    my $CHAR_COLUMNS_MAX = int($avail / $cell_w) || 1;
+
+                    my ($row, $col) = (0, 0);
                     for my $cp ($block_start .. $block_end) {
                         my $label = $chars_frame->Label(
                             Name         => CHAR_WIDGET_NAME,
