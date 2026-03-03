@@ -388,15 +388,18 @@ sub fill_pane {
     # the same characters again and consume memory.
     my $char_cache = {};
     my %charblocks = %{charblocks()};
-    for my $group (sort { $charblocks{$a}->[0]->[0] <=> $charblocks{$b}->[0]->[0] } keys %charblocks) {
+    my @sorted_groups = sort { $charblocks{$a}->[0]->[0] <=> $charblocks{$b}->[0]->[0] } keys %charblocks;
+    my @all_buttons;
+    for my $group (@sorted_groups) {
         my $frame = $pane->Frame->grid(qw/-sticky nw/);
         my ($block_start, $block_end) = @{$charblocks{$group}->[0]};
         my $button = $frame->Button(-text     => $group,
                                     -image    => $arrow,
                                     -compound => 'left',
-                                    -anchor   => 'n',
+                                    -anchor   => 'w',
                                     -relief   => 'flat')->
             pack(qw/-expand 1 -fill both -side left -padx 5 -anchor w/);
+        push @all_buttons, $button;
         $balloon->attach($button, -balloonmsg => 'Code points: ' . sprintf('0x%.4x', $block_start) . '-' . sprintf('0x%.4x', $block_end));
 
         push @{ $opt->{button_paths} }, $button->PathName;
@@ -443,6 +446,18 @@ sub fill_pane {
             $is_visible = !$is_visible;
         });
     }
+    # Make all group buttons the same width (in pixels) so the left column is uniform.
+    # We must wait until the widgets are rendered to measure their natural widths.
+    $pane->after(0, sub {
+        my $max_w = 0;
+        for my $b (@all_buttons) {
+            my $w = $b->reqwidth;
+            $max_w = $w if $w > $max_w;
+        }
+        for my $b (@all_buttons) {
+            $b->configure(-width => $max_w);
+        }
+    });
 }
 
 # Show help window.
