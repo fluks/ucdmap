@@ -715,7 +715,7 @@ sub find_matches {
             }
         }
         elsif (${ $radio->{selected} } == $radio->{cp}) {
-            my $base_10_choice = substr($choice, 0, 1) eq 'x' ? hex $choice : $choice;
+            my $base_10_choice = substr($choice, 0, 1) eq 'x' ? hex $choice : hex $choice;
             my $range = charblock($group)->[0];
             next
                 if ($base_10_choice < $range->[0] || $base_10_choice > $range->[1]);
