@@ -60,7 +60,7 @@ use Fcntl qw(:flock :seek);
 use JSON::PP;
 use Try::Tiny;
 
-our $VERSION = '0.3';
+our $VERSION = '0.4';
 
 my $options = {
     button_image => dist_file('ucdmap', 'arrow.png'),
